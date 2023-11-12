@@ -14,8 +14,8 @@ env:
   # then it takes precedence.
   default_object_euler: [0, 0, 3.14]
 
-  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "object_orientation"]
-  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos", "target_orientation"]
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
 
   rotationAxis: 2 # 0: X, 1: Y, 2: Z
   envSpacing: 0.75
