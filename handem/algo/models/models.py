@@ -19,46 +19,6 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
-
-class ProprioAdaptTConv(nn.Module):
-    def __init__(self, proprio_dim, extrin_dim=8):
-        super(ProprioAdaptTConv, self).__init__()
-        self.channel_transform = nn.Sequential(
-            nn.Linear(proprio_dim, 32),
-            nn.ReLU(inplace=True),
-            nn.Linear(32, 32),
-            nn.ReLU(inplace=True),
-        )
-        self.temporal_aggregation = nn.Sequential(
-            nn.Conv1d(32, 32, (9,), stride=(2,)),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(32, 32, (5,), stride=(1,)),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(32, 32, (5,), stride=(1,)),
-            nn.ReLU(inplace=True),
-        )
-        self.low_dim_proj = nn.Linear(32 * 3, extrin_dim)
-
-    def forward(self, x):
-        x = self.channel_transform(x)  # (N, 50, 32)
-        x = x.permute((0, 2, 1))  # (N, 32, 50)
-        x = self.temporal_aggregation(x)  # (N, 32, 3)
-        x = self.low_dim_proj(x.flatten(1))
-        return x
-
-class ProprioAdaptMLP(nn.Module):
-    def __init__(self, proprio_dim, proprio_hist_len, units=[256,128], extrin_dim=8):
-        super(ProprioAdaptMLP, self).__init__()
-        self.mlp = MLP(units, proprio_dim * proprio_hist_len)
-        self.low_dim_proj = nn.Linear(units[-1], extrin_dim)
-
-    def forward(self, x):
-        # x: (B, proprio_hist_len, proprio_dim)
-        x = x.flatten(1)
-        x = self.mlp(x)
-        x = self.low_dim_proj(x)
-        return x
-
 class ActorCritic(nn.Module):
     def __init__(self, kwargs):
         nn.Module.__init__(self)
@@ -69,30 +29,6 @@ class ActorCritic(nn.Module):
         self.critic_units = kwargs.pop("critic_units")
         self.asymmetric = kwargs.pop("asymmetric")
 
-        self.priv_mlp = kwargs.pop("priv_mlp_units")
-
-        self.priv_info = kwargs["priv_info"]
-        self.priv_info_stage2 = kwargs["proprio_adapt"]
-        self.priv_info_dict = kwargs["priv_info_dict"] # stores indices for each field of priv info
-
-        if self.priv_info:
-            # append embedding to inputs to both actor and critic
-            if self.priv_mlp is None: 
-                # if not self.priv_info_stage2: 
-                actor_input_shape += kwargs["priv_info_dim"]
-                critic_input_shape += kwargs["priv_info_dim"]
-            else:
-                actor_input_shape += self.priv_mlp[-1]
-                critic_input_shape += self.priv_mlp[-1]
-                self.env_mlp = MLP(units=self.priv_mlp, input_size=kwargs["priv_info_dim"])
-
-            if self.priv_info_stage2:
-                extrin_dim = kwargs["priv_info_dim"] if self.priv_mlp is None else self.priv_mlp[-1]
-                if kwargs["proprio_arch"] == "mlp":
-                    self.adapt = ProprioAdaptMLP(kwargs["proprio_dim"], kwargs["proprio_hist_len"], extrin_dim=extrin_dim)
-                else:
-                    self.adapt = ProprioAdaptTConv(kwargs["proprio_dim"], extrin_dim)
-        
         # actor network
         self.actor_mlp = MLP(units=self.actor_units, input_size=actor_input_shape)
         self.mu = torch.nn.Linear(self.actor_units[-1], actions_num)
@@ -140,32 +76,6 @@ class ActorCritic(nn.Module):
         obs = obs_dict["obs"]
         state = obs_dict["state"]
         extrin, extrin_gt = None, None
-        if self.priv_info:
-            if self.priv_info_stage2:
-                extrin = self.adapt(obs_dict["proprio_hist"])
-                # during supervised training, extrin has gt label
-                if self.priv_mlp is not None: # if we are compressing priv info
-                    extrin_gt = self.env_mlp(obs_dict["priv_info"]) if "priv_info" in obs_dict else extrin
-                    extrin_gt = torch.tanh(extrin_gt)
-                    extrin = torch.tanh(extrin)
-                else: # if we are not compressing priv info
-                    extrin_gt = obs_dict["priv_info"] if "priv_info" in obs_dict else extrin
-                    # normalize quat pred if in priv info
-                    if "object_orientation" in self.priv_info_dict.keys():
-                        s, e = self.priv_info_dict["object_orientation"]
-                        norm = torch.norm(extrin[:, s:e].clone(), dim=-1, keepdim=True)
-                        extrin[:, s:e] = extrin[:, s:e].clone() / norm
-                obs = torch.cat([obs, extrin], dim=-1)
-                state = torch.cat([state, extrin], dim=-1)
-            else:
-                if self.priv_mlp is not None: # if we are compressing priv info
-                    extrin = self.env_mlp(obs_dict["priv_info"])
-                    extrin = torch.tanh(extrin)
-                else:
-                    extrin = obs_dict["priv_info"]
-                obs = torch.cat([obs, extrin], dim=-1)
-                state = torch.cat([state, extrin], dim=-1)
-
         # actor forward pass
         x_actor = self.actor_mlp(obs)
         mu = self.mu(x_actor)

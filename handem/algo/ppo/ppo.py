@@ -32,25 +32,16 @@ class PPO(object):
         self.actions_high = torch.from_numpy(action_space.high.copy()).float().to(self.device)
         self.observation_space = self.env.observation_space
         self.obs_shape = self.observation_space.shape
-        # ---- Priv Info ----
-        self.priv_info_dim = self.env.num_env_factors
-        self.priv_info = self.priv_info_dim > 0
-        self.proprio_adapt = self.ppo_config['proprio_adapt']
         # ---- Model ----
         self.asymmetric = self.ppo_config['asymmetric']
         self.state_dim = self.env.cfg['env']['numStates']
         net_config = {
             'actor_units': self.network_config.mlp.actor_units,
             'critic_units': self.network_config.mlp.critic_units,
-            'priv_mlp_units': self.network_config.priv_mlp.get('units', None),
             'actions_num': self.actions_num,
             'actor_input_shape': self.obs_shape[0],
             'critic_input_shape': self.state_dim if self.asymmetric else self.obs_shape[0],
             'asymmetric': self.asymmetric,
-            'priv_info': self.priv_info,
-            'proprio_adapt': self.proprio_adapt,
-            'priv_info_dim': self.priv_info_dim,
-            'priv_info_dict': self.env.priv_info_dict
         }
         self.model = ActorCritic(net_config)
         self.model.to(self.device)
@@ -89,15 +80,6 @@ class PPO(object):
         self.actor_mini_epochs = self.ppo_config['actor_mini_epochs']
         self.critic_mini_epochs = self.ppo_config['critic_mini_epochs']
         assert self.batch_size % self.minibatch_size == 0 or full_config.test
-        # ---- Tree Buffer ----
-        self.use_tree = self.ppo_config['use_tree']
-        self.tree_minibatch_size = self.ppo_config['tree_minibatch_size']
-        self.tree_critic_mini_epochs = self.ppo_config['tree_critic_mini_epochs']
-        if self.use_tree:
-            self.env.load_tree()
-            # dictionary that maps member names in state to indices of state tensor
-            self.state_idx_map = self.env.tree['state_space_map'] 
-            self.tree_buffer = TreeBuffer(self.env.tree, self.device, self.tree_minibatch_size)
         # ---- scheduler ----
         self.kl_threshold = self.ppo_config['kl_threshold']
         self.scheduler = AdaptiveScheduler(self.kl_threshold)
@@ -118,7 +100,7 @@ class PPO(object):
         self.epoch_num = 0
         self.storage = ExperienceBuffer(
             self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.obs_shape[0],
-            self.state_dim, self.actions_num, self.priv_info_dim, self.device,
+            self.state_dim, self.actions_num, self.device,
         )
 
         batch_size = self.num_actors
@@ -172,7 +154,6 @@ class PPO(object):
         input_dict = {
             'obs': processed_obs,
             'state': processed_state,
-            'priv_info': obs_dict['priv_info'],
         }
         res_dict = self.model.act(input_dict)
         res_dict['values'] = self.value_mean_std(res_dict['values'], True)
@@ -260,7 +241,6 @@ class PPO(object):
             input_dict = {
                 'obs': self.obs_mean_std(obs_dict['obs']),
                 'state': self.state_mean_std(obs_dict['state']),
-                'priv_info': obs_dict['priv_info'],
             }
             mu, _ = self.model.act_inference(input_dict)
             mu = torch.clamp(mu, -1.0, 1.0)
@@ -272,14 +252,13 @@ class PPO(object):
         for _ in range(0, self.critic_mini_epochs):
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, priv_info = self.storage[i]
+                    returns, actions, obs, states = self.storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
                     'prev_actions': actions,
                     'obs': obs,
                     'state': states,
-                    'priv_info': priv_info,
                 }
                 # forward pass
                 res_dict = self.model(batch_dict)
@@ -306,7 +285,7 @@ class PPO(object):
             ep_kls = []
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, priv_info = self.storage[i]
+                    returns, actions, obs, states = self.storage[i]
 
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
@@ -314,7 +293,6 @@ class PPO(object):
                     'prev_actions': actions,
                     'obs': obs,
                     'state': states,
-                    'priv_info': priv_info,
                 }
                 res_dict = self.model(batch_dict)
                 action_log_probs = res_dict['prev_neglogp']
@@ -388,7 +366,6 @@ class PPO(object):
             res_dict = self.model_act(self.obs)
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
-            self.storage.update_data('priv_info', n, self.obs['priv_info'])
             self.storage.update_data('states', n, self.obs['state'])
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:
                 self.storage.update_data(k, n, res_dict[k])
