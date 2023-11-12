@@ -10,8 +10,6 @@ env:
   default_ur5e_joint_pos: [-1.57, -1.57, -1.57, -1.57, 1.57, 0]
   default_object_pos: [0.125, 0.5, 0.25]
 
-  # default object orientation can be specified with euler angles or quaternion. If default_object_euler is provided
-  # then it takes precedence.
   default_object_euler: [0, 0, 3.14]
 
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
@@ -22,7 +20,7 @@ env:
   episodeLength: 300
   enableDebugVis: False
   aggregateMode: 1
-  controlFrequencyInv: 1 # for manifold_ihm
+  controlFrequencyInv: 1
   clipObservations: 5.0
   clipActions: 1.0
   contactBoolForceThreshold: 1
@@ -34,7 +32,6 @@ env:
   visualization:
     visObjAxes: True
     visContactVec: True
-    visAdaptPred: False # visualize predictions during adaptation (pose etc.)
   # logging configurations
   logging:
     enableLog: False
