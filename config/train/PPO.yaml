@@ -4,8 +4,6 @@ network:
   mlp:
     actor_units: [512, 512, 256, 128]
     critic_units: [512, 512, 256, 128]
-  priv_mlp:
-    units: # [256, 128, 8] # Empty implies no embedding for priv info
 
 load_path: ${..checkpoint} # path to the checkpoint to load
 
@@ -38,11 +36,3 @@ ppo:
   save_best_after: 0
   save_frequency: 500
   max_agent_steps: 30000000000
-  # hora setting
-  proprio_adapt: False
-  # architecture
-  proprio_arch: 'mlp' # either 'tconv' or 'mlp'
-  # Train value net with tree transitions
-  use_tree: False
-  tree_minibatch_size: 1024
-  tree_critic_mini_epochs: 1
