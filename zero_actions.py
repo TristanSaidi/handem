@@ -35,7 +35,7 @@ def main(cfg: DictConfig):
     
     # save config if building RRT
     if cfg.task_name == "BuildRRT":
-        config_path = cfg.task.RRT.save_file + "_config.yaml"
+        config_path = "outputs/trees/" + cfg.task.RRT.save_file + "/config.yaml"
         with open(config_path, "w") as f:
             f.write(OmegaConf.to_yaml(cfg))
 
