@@ -1,0 +1,26 @@
+defaults:
+ - IHM.yaml
+
+name:
+
+env: # any default configurations that we want to edit
+  # specifies what the tree nodes will store as sim_state
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
+  reset:
+    # reset conditions
+    obj_tilt_lim_cos: 0.95 # only considered if an axis other than 3 is specified
+    obj_xyz_lower_lim: [0.105, 0.45, 0.245]
+    obj_xyz_upper_lim: [0.145, 0.55, 0.255]
+
+RRT:
+  axis: 3 # 0: X, 1: Y, 2: Z, 3: arbitrary reorientation
+  save_file: ''
+  action_scale: 0.15
+  max_nodes: 100000
+  samples_per_iter: 1024
+  stability_check_duration: 40 # this is irrelevant if use_local_planner = True
+
+extract_grasps:
+  tree_path: ''
+  save_file: ''
+  max_nodes: 1000
