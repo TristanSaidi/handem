@@ -51,8 +51,8 @@ class PPO(object):
         # ---- Output Dir ----
         # allows us to specify a folder where all experiments will reside
         self.output_dir = output_dif
-        self.nn_dir = os.path.join(self.output_dir, 'stage1_nn')
-        self.tb_dif = os.path.join(self.output_dir, 'stage1_tb')
+        self.nn_dir = os.path.join(self.output_dir, 'nn')
+        self.tb_dif = os.path.join(self.output_dir, 'tb')
         os.makedirs(self.nn_dir, exist_ok=True)
         os.makedirs(self.tb_dif, exist_ok=True)
         # ---- Optim ----
