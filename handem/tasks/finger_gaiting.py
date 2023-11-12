@@ -38,8 +38,7 @@ class FingerGaiting(IHMBase):
             virtual_screen_capture,
             force_render,
         )
-        assert "target_orientation" not in self.cfg["env"]["feedbackObs"] \
-            and "target_orientation" not in self.cfg["env"]["feedbackState"], "target_orientation is not supported for fingerGaiting"
+
         self.saved_grasp_states = None
         if self.cfg["env"]["use_saved_grasps"]:
             self.load_grasps()
