@@ -1,7 +1,7 @@
 #!/bin/bash
 GPUS=$1
 SEED=$2
-CACHE=$3
+EXP_NAME=$3
 OBJECT=$4
 TASK=$5
 
@@ -16,6 +16,5 @@ CUDA_VISIBLE_DEVICES=${GPUS} \
 python train.py task=${TASK} headless=True seed=${SEED} \
 train.algo=PPO \
 task.env.object="${OBJECT}" \
-train.ppo.proprio_adapt=False \
-train.ppo.output_name="${CACHE}" \
+train.ppo.output_name="${EXP_NAME}" \
 ${EXTRA_ARGS}
