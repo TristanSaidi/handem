@@ -1,0 +1,102 @@
+physics_engine: ${..physics_engine}
+
+logdir: 
+# if given, will override the device setting in gym.
+env:
+  numEnvs: ${resolve_default:16384,${...num_envs}}
+  
+  object: cube 
+  # default positions
+  default_hand_joint_pos: [0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45]
+  default_ur5e_joint_pos: [-1.57, -1.57, -1.57, -1.57, 1.57, 0]
+  default_object_pos: [0.125, 0.5, 0.25]
+
+  # default object orientation can be specified with euler angles or quaternion. If default_object_euler is provided
+  # then it takes precedence.
+  default_object_euler: [0, 0, 3.14]
+
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "object_orientation", "target_orientation"]
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos", "target_orientation"]
+
+  rotationAxis: 2 # 0: X, 1: Y, 2: Z
+  envSpacing: 0.75
+  episodeLength: 300
+  enableDebugVis: False
+  aggregateMode: 1
+  controlFrequencyInv: 1 # for manifold_ihm
+  clipObservations: 5.0
+  clipActions: 1.0
+  contactBoolForceThreshold: 1
+
+  actionScale: [ 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, ]
+  enableObjConvexDecomp: True
+  
+  # visualization configs
+  visualization:
+    visObjAxes: True
+    visContactVec: True
+    visAdaptPred: False # visualize predictions during adaptation (pose etc.)
+  # logging configurations
+  logging:
+    enableLog: False
+    logDir: 'runs/policy_rollouts/'
+    maxLogLen: 2500
+    logObs: True
+    logPose: True
+    logContact: True
+
+  object_params:
+    mass: 0.1
+    com: [0, 0, 0]
+    friction: 1
+    scale: 1
+
+  hand_params:
+    # actuator params
+    stiffness: 30
+    damping: 5
+    velocityLimit: 4
+    effortLimit: 1
+    jointFriction: 0.0
+    # actuator limits
+    hand_joint_lower_lim: [ -0.7, -0.39269908169, 0.0001 ]
+    hand_joint_upper_lim: [ 0.7, 0.5, 1 ]
+  
+  ur5e_params:
+    stiffness: 1e6
+    damping: 5
+    velocityLimit: 4
+    effortLimit: 200
+    # ur5e limits
+    ur5e_joint_lower_lim: [ -3.14, -3.14, -3.14, -3.14, -3.14, -3.14 ]
+    ur5e_joint_upper_lim: [ 3.14, 3.14, 3.14, 3.14, 3.14, 3.14 ]
+
+  adaptation:
+    propHistoryLen: 30
+    
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+sim:
+  dt: 0.05 # 20 Hz
+  substeps: 3 # for manifold_ihm
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  gravity: [0.0, 0.0, -9.81]
+  physx:
+    num_threads: ${....num_threads}
+    solver_type: ${....solver_type}
+    use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
+    num_position_iterations: 8
+    num_velocity_iterations: 0
+    max_gpu_contact_pairs: 8388608 # 8*1024*1024
+    num_subscenes: ${....num_subscenes}
+    contact_offset: 0.002
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 1000.0
+    default_buffer_size_multiplier: 5.0
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+
+    # contact_offset of 0.002 m and rest_offset of 0.0 m seem appropriate.
+    # contact_collection is set to CC_ALL_SUBSTEPS
