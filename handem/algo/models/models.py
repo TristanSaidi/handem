@@ -19,6 +19,20 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
+class Discriminator(nn.Module):
+    def __init__(self, proprio_dim, proprio_hist_len, units, num_classes):
+        super(Discriminator, self).__init__()
+        units.append(num_classes)
+        self.mlp = MLP(units, proprio_dim * proprio_hist_len)
+
+    def forward(self, x):
+        # x: (B, proprio_hist_len, proprio_dim)
+        x = x.flatten(1)
+        x = self.mlp(x)
+        x = self.low_dim_proj(x)
+        x = F.log_softmax(x, dim=-1)
+        return x
+
 class ActorCritic(nn.Module):
     def __init__(self, kwargs):
         nn.Module.__init__(self)

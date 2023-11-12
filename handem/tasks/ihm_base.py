@@ -664,17 +664,6 @@ class IHMBase(VecTask):
             cprint(f"Loading grasps from {grasp_file}", "blue", attrs=["bold"])
             self.saved_grasp_states[obj] = torch.from_numpy(np.load(grasp_file)).to(self.device)
 
-    def load_tree(self):
-        # load tree, to be called from PPO class
-        cache_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cache"))
-        tree_file = os.path.join(cache_root, self.cfg["env"]["saved_tree"])
-        with open(tree_file, 'rb') as f:
-            self.tree = pickle.load(f)
-        cprint(f"Loading tree from {tree_file}", "green", attrs=["bold"])
-        # check to make sure state space of tree matches current
-        state_space = list(self.tree["state_space_map"].keys())
-        assert state_space == self.cfg["env"]["feedbackState"], "state space of loaded tree does not match current state space"
-
     def sample_grasp(self, env_idx, objects):
         """Sample new grasp pose"""
         if self.saved_grasp_states is None:

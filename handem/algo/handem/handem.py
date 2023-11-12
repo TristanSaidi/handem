@@ -12,80 +12,97 @@ import torch
 
 from tensorboardX import SummaryWriter
 
-from handem.algo.ppo.experience import ExperienceBuffer
+from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
+from handem.algo.models.models import Discriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 
 
-class PPO(object):
-    def __init__(self, env, output_dif, full_config):
+class HANDEM(object):
+    def __init__(self, env, output_dir, full_config):
         self.device = full_config['rl_device']
-        self.network_config = full_config.train.network
-        self.ppo_config = full_config.train.ppo
+        self.ppo_net_config = full_config.train.handem.ppo_network
+        self.disc_net_config = full_config.train.handem.discriminator_network
+        self.train_config = full_config.train.handem
         # ---- build environment ----
         self.env = env
-        self.num_actors = self.ppo_config['num_actors']
+        self.num_actors = self.train_config['num_actors']
         action_space = self.env.action_space
         self.actions_num = action_space.shape[0]
         self.actions_low = torch.from_numpy(action_space.low.copy()).float().to(self.device)
         self.actions_high = torch.from_numpy(action_space.high.copy()).float().to(self.device)
         self.observation_space = self.env.observation_space
         self.obs_shape = self.observation_space.shape
-        # ---- Model ----
-        self.asymmetric = self.ppo_config['asymmetric']
+        # ---- Explorer ----
+        self.asymmetric = self.train_config['asymmetric']
         self.state_dim = self.env.cfg['env']['numStates']
-        net_config = {
-            'actor_units': self.network_config.mlp.actor_units,
-            'critic_units': self.network_config.mlp.critic_units,
+        ppo_net_config = {
+            'actor_units': self.ppo_net_config.mlp.actor_units,
+            'critic_units': self.ppo_net_config.mlp.critic_units,
             'actions_num': self.actions_num,
             'actor_input_shape': self.obs_shape[0],
             'critic_input_shape': self.state_dim if self.asymmetric else self.obs_shape[0],
             'asymmetric': self.asymmetric,
         }
-        self.model = ActorCritic(net_config)
-        self.model.to(self.device)
+        self.explorer = ActorCritic(ppo_net_config)
+        self.explorer.to(self.device)
+        # ---- Discriminator ----
+        self.proprio_hist_len = full_config.task["adaptation"]["propHistoryLen"]
+        self.proprio_dim = self.env.num_obs
+        self.num_classes = full_config.task["handem"]["num_classes"]
+        disc_net_config = {
+            'proprio_dim': self.proprio_dim,
+            'proprio_hist_len': self.proprio_hist_len,
+            'units': self.disc_net_config.mlp.units,
+            'num_classes': self.num_classes,
+        }
+        self.discriminator = Discriminator(disc_net_config)
+        self.discriminator.to(self.device)
+        # ---- Normalization ----
         self.obs_mean_std = RunningMeanStd(self.obs_shape).to(self.device) # observation running mean
-        self.state_mean_std = RunningMeanStd((self.state_dim,)).to(self.device) # state running mean
+        self.state_mean_std = RunningMeanStd((self.state_dim,)).to(self.device) # state running mean for asymmetric critic
         self.value_mean_std = RunningMeanStd((1,)).to(self.device)
+        self.hist_mean_std = RunningMeanStd((self.proprio_hist_len, self.proprio_dim)).to(self.device)
         # ---- Output Dir ----
         # allows us to specify a folder where all experiments will reside
-        self.output_dir = output_dif
+        self.output_dir = output_dir
         self.nn_dir = os.path.join(self.output_dir, 'nn')
         self.tb_dif = os.path.join(self.output_dir, 'tb')
         os.makedirs(self.nn_dir, exist_ok=True)
         os.makedirs(self.tb_dif, exist_ok=True)
         # ---- Optim ----
-        self.last_lr = float(self.ppo_config['learning_rate'])
-        self.weight_decay = self.ppo_config.get('weight_decay', 0.0)
-        self.actor_optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
-        self.critic_optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        self.last_lr = float(self.train_config['learning_rate'])
+        self.weight_decay = self.train_config.get('weight_decay', 0.0)
+        self.actor_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        self.critic_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        self.disc_optimizer = torch.optim.Adam(self.discriminator.parameters(), self.last_lr, weight_decay=self.weight_decay)
         # ---- PPO Train Param ----
-        self.e_clip = self.ppo_config['e_clip']
-        self.clip_value = self.ppo_config['clip_value']
-        self.entropy_coef = self.ppo_config['entropy_coef']
-        self.bounds_loss_coef = self.ppo_config['bounds_loss_coef']
-        self.gamma = self.ppo_config['gamma']
-        self.tau = self.ppo_config['tau']
-        self.truncate_grads = self.ppo_config['truncate_grads']
-        self.grad_norm = self.ppo_config['grad_norm']
-        self.value_bootstrap = self.ppo_config['value_bootstrap']
-        self.normalize_advantage = self.ppo_config['normalize_advantage']
-        self.normalize_input = self.ppo_config['normalize_input']
-        self.normalize_value = self.ppo_config['normalize_value']
+        self.e_clip = self.train_config['e_clip']
+        self.clip_value = self.train_config['clip_value']
+        self.entropy_coef = self.train_config['entropy_coef']
+        self.bounds_loss_coef = self.train_config['bounds_loss_coef']
+        self.gamma = self.train_config['gamma']
+        self.tau = self.train_config['tau']
+        self.truncate_grads = self.train_config['truncate_grads']
+        self.grad_norm = self.train_config['grad_norm']
+        self.value_bootstrap = self.train_config['value_bootstrap']
+        self.normalize_advantage = self.train_config['normalize_advantage']
+        self.normalize_input = self.train_config['normalize_input']
+        self.normalize_value = self.train_config['normalize_value']
         # ---- PPO Collect Param ----
-        self.horizon_length = self.ppo_config['horizon_length']
+        self.horizon_length = self.train_config['horizon_length']
         self.batch_size = self.horizon_length * self.num_actors
-        self.minibatch_size = self.ppo_config['minibatch_size']
-        self.actor_mini_epochs = self.ppo_config['actor_mini_epochs']
-        self.critic_mini_epochs = self.ppo_config['critic_mini_epochs']
+        self.minibatch_size = self.train_config['minibatch_size']
+        self.actor_mini_epochs = self.train_config['actor_mini_epochs']
+        self.critic_mini_epochs = self.train_config['critic_mini_epochs']
         assert self.batch_size % self.minibatch_size == 0 or full_config.test
         # ---- scheduler ----
-        self.kl_threshold = self.ppo_config['kl_threshold']
+        self.kl_threshold = self.train_config['kl_threshold']
         self.scheduler = AdaptiveScheduler(self.kl_threshold)
         # ---- Snapshot
-        self.save_freq = self.ppo_config['save_frequency']
-        self.save_best_after = self.ppo_config['save_best_after']
+        self.save_freq = self.train_config['save_frequency']
+        self.save_best_after = self.train_config['save_best_after']
         # ---- Tensorboard Logger ----
         self.extra_info = {}
         writer = SummaryWriter(self.tb_dif)
@@ -109,7 +126,7 @@ class PPO(object):
         self.current_lengths = torch.zeros(batch_size, dtype=torch.float32, device=self.device)
         self.dones = torch.ones((batch_size,), dtype=torch.uint8, device=self.device)
         self.agent_steps = 0
-        self.max_agent_steps = self.ppo_config['max_agent_steps']
+        self.max_agent_steps = self.train_config['max_agent_steps']
         self.best_rewards = -10000
         # ---- Timing
         self.data_collect_time = 0
@@ -133,18 +150,22 @@ class PPO(object):
             self.writer.add_scalar(f'{k}', v, self.agent_steps)
 
     def set_eval(self):
-        self.model.eval()
+        self.explorer.eval()
+        self.discriminator.eval()
         if self.normalize_input:
             self.obs_mean_std.eval()
             self.state_mean_std.eval()
+            self.hist_mean_std.eval()
         if self.normalize_value:
             self.value_mean_std.eval()
 
     def set_train(self):
-        self.model.train()
+        self.explorer.train()
+        self.discriminator.train()
         if self.normalize_input:
             self.obs_mean_std.train()
             self.state_mean_std.train()
+            self.hist_mean_std.train()
         if self.normalize_value:
             self.value_mean_std.train()
 
@@ -155,7 +176,7 @@ class PPO(object):
             'obs': processed_obs,
             'state': processed_state,
         }
-        res_dict = self.model.act(input_dict)
+        res_dict = self.explorer.act(input_dict)
         res_dict['values'] = self.value_mean_std(res_dict['values'], True)
         return res_dict
 
@@ -209,7 +230,8 @@ class PPO(object):
 
     def save(self, name):
         weights = {
-            'model': self.model.state_dict(),
+            'explorer': self.explorer.state_dict(),
+            'discriminator': self.discriminator.state_dict(),
         }
         if self.obs_mean_std:
             weights['obs_mean_std'] = self.obs_mean_std.state_dict()
@@ -217,22 +239,29 @@ class PPO(object):
             weights['state_mean_std'] = self.state_mean_std.state_dict()
         if self.value_mean_std:
             weights['value_mean_std'] = self.value_mean_std.state_dict()
+        if self.hist_mean_std:
+            weights['hist_mean_std'] = self.hist_mean_std.state_dict()
         torch.save(weights, f'{name}.pth')
 
     def restore_train(self, fn):
         if not fn:
             return
         checkpoint = torch.load(fn)
-        self.model.load_state_dict(checkpoint['model'])
+        self.explorer.load_state_dict(checkpoint['explorer'])
+        self.discriminator.load_state_dict(checkpoint['discriminator'])
         self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
         self.state_mean_std.load_state_dict(checkpoint['state_mean_std'])
+        self.value_mean_std.load_state_dict(checkpoint['value_mean_std'])
+        self.hist_mean_std.load_state_dict(checkpoint['hist_mean_std'])
 
     def restore_test(self, fn):
         checkpoint = torch.load(fn)
-        self.model.load_state_dict(checkpoint['model'])
+        self.explorer.load_state_dict(checkpoint['model'])
+        self.discriminator.load_state_dict(checkpoint['discriminator'])
         if self.normalize_input:
             self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
             self.state_mean_std.load_state_dict(checkpoint['state_mean_std'])
+            self.hist_mean_std.load_state_dict(checkpoint['hist_mean_std'])
 
     def test(self):
         self.set_eval()
@@ -242,7 +271,7 @@ class PPO(object):
                 'obs': self.obs_mean_std(obs_dict['obs']),
                 'state': self.state_mean_std(obs_dict['state']),
             }
-            mu, _ = self.model.act_inference(input_dict)
+            mu, _ = self.explorer.act_inference(input_dict)
             mu = torch.clamp(mu, -1.0, 1.0)
             obs_dict, r, done, info = self.env.step(mu)
 
@@ -261,7 +290,7 @@ class PPO(object):
                     'state': states,
                 }
                 # forward pass
-                res_dict = self.model(batch_dict)
+                res_dict = self.explorer(batch_dict)
                 values = res_dict['values']
                 # compute critic loss
                 value_pred_clipped = value_preds + (values - value_preds).clamp(-self.e_clip, self.e_clip)
@@ -272,7 +301,7 @@ class PPO(object):
                 self.critic_optimizer.zero_grad()
                 c_loss.backward()
                 if self.truncate_grads:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                    torch.nn.utils.clip_grad_norm_(self.explorer.parameters(), self.grad_norm)
                 self.critic_optimizer.step()
                 c_losses.append(c_loss)
         return c_losses
@@ -294,7 +323,7 @@ class PPO(object):
                     'obs': obs,
                     'state': states,
                 }
-                res_dict = self.model(batch_dict)
+                res_dict = self.explorer(batch_dict)
                 action_log_probs = res_dict['prev_neglogp']
                 values = res_dict['values']
                 entropy = res_dict['entropy']
@@ -321,7 +350,7 @@ class PPO(object):
                 self.actor_optimizer.zero_grad()
                 loss.backward()
                 if self.truncate_grads:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                    torch.nn.utils.clip_grad_norm_(self.explorer.parameters(), self.grad_norm)
                 self.actor_optimizer.step()
 
                 with torch.no_grad():

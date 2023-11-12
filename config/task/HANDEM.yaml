@@ -1,0 +1,33 @@
+defaults:
+  - IHM.yaml
+
+name: HANDEM
+
+handem:
+  num_classes: 4
+
+env:
+  object: ["cylinder", "cube", "13x6_cuboid", "10x8x8x4_L"]
+  episodeLength: 512
+  use_saved_grasps: False
+  saved_grasps: 
+    cylinder:
+    cube:
+    13x6_cuboid: 
+    10x8x8x4_L:
+  saved_tree: 
+
+  # observation and state
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
+
+  reset:
+    obj_xyz_lower_lim: [0.105, 0.45, 0.2]
+    obj_xyz_upper_lim: [0.145, 0.55, 0.3]
+
+  # reward terms
+  reward:
+    # sparse discriminator reward
+
+    # dense discriminator reward
+

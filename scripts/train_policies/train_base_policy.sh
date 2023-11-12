@@ -14,7 +14,7 @@ echo extra "${EXTRA_ARGS}"
 
 CUDA_VISIBLE_DEVICES=${GPUS} \
 python train.py task=${TASK} headless=True seed=${SEED} \
-train.algo=PPO \
+train.algo=HANDEM \
 task.env.object="${OBJECT}" \
-train.ppo.output_name="${EXP_NAME}" \
+train.handem.output_name="${EXP_NAME}" \
 ${EXTRA_ARGS}
