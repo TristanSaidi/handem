@@ -626,8 +626,6 @@ class IHMBase(VecTask):
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
         if self.states_buf is not None:
             self.obs_dict["state"] = self.states_buf.clone()
-        if getattr(self, "success", None) is not None:
-            self.extras["success"] = self.success
         return self.obs_dict, self.rew_buf, self.reset_buf, self.extras
 
     def compute_reward(self, actions=None):
