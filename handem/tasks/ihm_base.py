@@ -19,7 +19,6 @@ from handem.tasks.base.vec_task import VecTask
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
 from handem.utils.torch_utils import to_torch
-from scipy import interpolate
 import pickle
 from datetime import datetime
 
