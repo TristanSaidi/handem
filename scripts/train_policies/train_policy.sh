@@ -2,8 +2,7 @@
 GPUS=$1
 SEED=$2
 EXP_NAME=$3
-OBJECT=$4
-TASK=$5
+TASK=$4
 
 array=( $@ )
 len=${#array[@]}
@@ -15,6 +14,5 @@ echo extra "${EXTRA_ARGS}"
 CUDA_VISIBLE_DEVICES=${GPUS} \
 python train.py task=${TASK} headless=True seed=${SEED} \
 train.algo=HANDEM \
-task.env.object="${OBJECT}" \
 train.handem.output_name="${EXP_NAME}" \
 ${EXTRA_ARGS}

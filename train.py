@@ -53,7 +53,7 @@ def main(cfg: DictConfig):
         force_render=False,
     )
 
-    output_dif = os.path.join('outputs', cfg.train.handem.output_name)
+    output_dif = os.path.join('outputs', 'policies', cfg.train.handem.output_name)
     os.makedirs(output_dif, exist_ok=True)
     agent = eval(cfg.train.algo)(env, output_dif, full_config=cfg)
     if cfg.test:
