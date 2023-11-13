@@ -3,8 +3,7 @@ physics_engine: ${..physics_engine}
 # if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
-  
-  object: cube 
+  object_dataset: '3DPrintedShapes'
   # default positions
   default_hand_joint_pos: [0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45]
   default_ur5e_joint_pos: [-1.57, -1.57, -1.57, -1.57, 1.57, 0]
@@ -49,8 +48,8 @@ env:
 
   hand_params:
     # actuator params
-    stiffness: 30
-    damping: 5
+    stiffness: 3.0
+    damping: 0.1
     velocityLimit: 4
     effortLimit: 1
     jointFriction: 0.0
