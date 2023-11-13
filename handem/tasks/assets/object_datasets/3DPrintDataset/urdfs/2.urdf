@@ -1,0 +1,23 @@
+<!-- URDF for L  -->
+<?xml version="1.0"?>
+<robot name="object">
+  <link name="object">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://objects/meshes/10x8x8x4_L.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://objects/meshes/10x8x8x4_L.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.090"/>
+      <inertia ixx="0.01" ixy="0.00" ixz="0.00" iyy="0.01" iyz="0.0" izz="0.01"/>
+      <!-- inertia is recomputed when loading asset  -->
+    </inertial>
+  </link>
+</robot>
