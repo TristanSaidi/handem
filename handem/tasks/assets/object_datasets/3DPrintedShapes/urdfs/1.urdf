@@ -1,4 +1,3 @@
-<!-- URDF for Cube  -->
 <?xml version="1.0"?>
 <robot name="object">
   <link name="object">
