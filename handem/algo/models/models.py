@@ -26,7 +26,7 @@ class Discriminator(nn.Module):
         self.mlp = MLP(units, proprio_dim * proprio_hist_len)
 
     def forward(self, x):
-        # x: (B, proprio_hist_len, proprio_dim)
+        # x: tensor of size (B x proprio_hist_len x proprio_dim)
         x = x.flatten(1)
         x = self.mlp(x)
         x = self.low_dim_proj(x)

@@ -50,7 +50,7 @@ class HANDEM(object):
         # ---- Discriminator ----
         self.proprio_hist_len = full_config.task["adaptation"]["propHistoryLen"]
         self.proprio_dim = self.env.num_obs
-        self.num_classes = full_config.task["handem"]["num_classes"]
+        self.num_classes = self.env.num_objects
         disc_net_config = {
             'proprio_dim': self.proprio_dim,
             'proprio_hist_len': self.proprio_hist_len,
@@ -59,11 +59,15 @@ class HANDEM(object):
         }
         self.discriminator = Discriminator(disc_net_config)
         self.discriminator.to(self.device)
+        self.discriminator_epochs = self.train_config['discriminator_epochs']
         # ---- Normalization ----
         self.obs_mean_std = RunningMeanStd(self.obs_shape).to(self.device) # observation running mean
         self.state_mean_std = RunningMeanStd((self.state_dim,)).to(self.device) # state running mean for asymmetric critic
         self.value_mean_std = RunningMeanStd((1,)).to(self.device)
         self.hist_mean_std = RunningMeanStd((self.proprio_hist_len, self.proprio_dim)).to(self.device)
+        # ---- Labels ----
+        object_labels = self.env.object_labels
+        self.labels = torch.tensor(object_labels, device=self.device)
         # ---- Output Dir ----
         # allows us to specify a folder where all experiments will reside
         self.output_dir = output_dir
@@ -117,7 +121,7 @@ class HANDEM(object):
         self.epoch_num = 0
         self.storage = ExperienceBuffer(
             self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.obs_shape[0],
-            self.state_dim, self.actions_num, self.device,
+            self.state_dim, self.actions_num, self.proprio_hist_len, self.device,
         )
 
         batch_size = self.num_actors
@@ -133,13 +137,14 @@ class HANDEM(object):
         self.rl_train_time = 0
         self.all_time = 0
 
-    def write_stats(self, a_losses, c_losses, b_losses, entropies, kls):
+    def write_stats(self, a_losses, c_losses, b_losses, d_losses, entropies, kls):
         self.writer.add_scalar('performance/RLTrainFPS', self.agent_steps / self.rl_train_time, self.agent_steps)
         self.writer.add_scalar('performance/EnvStepFPS', self.agent_steps / self.data_collect_time, self.agent_steps)
 
         self.writer.add_scalar('losses/actor_loss', torch.mean(torch.stack(a_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/bounds_loss', torch.mean(torch.stack(b_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/critic_loss', torch.mean(torch.stack(c_losses)).item(), self.agent_steps)
+        self.writer.add_scalar('losses/disc_loss', torch.mean(torch.stack(d_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/entropy', torch.mean(torch.stack(entropies)).item(), self.agent_steps)
 
         self.writer.add_scalar('info/last_lr', self.last_lr, self.agent_steps)
@@ -170,14 +175,19 @@ class HANDEM(object):
             self.value_mean_std.train()
 
     def model_act(self, obs_dict):
+        """ Produces action from explorer and prediction from discriminator """
         processed_obs = self.obs_mean_std(obs_dict['obs'])
         processed_state = self.state_mean_std(obs_dict['state'])
+        processed_hist = self.hist_mean_std(obs_dict['proprio_hist'])
         input_dict = {
             'obs': processed_obs,
             'state': processed_state,
         }
+        # forward pass through explorer
         res_dict = self.explorer.act(input_dict)
         res_dict['values'] = self.value_mean_std(res_dict['values'], True)
+        # forward pass through discriminator
+        res_dict['disc_preds'] = self.discriminator(processed_hist)
         return res_dict
 
     def train(self):
@@ -188,7 +198,7 @@ class HANDEM(object):
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
-            a_losses, c_losses, b_losses, entropies, kls = self.train_epoch()
+            a_losses, c_losses, b_losses, d_losses, entropies, kls = self.train_epoch()
             self.storage.data_dict = None
 
             all_fps = self.agent_steps / (time.time() - _t)
@@ -201,7 +211,7 @@ class HANDEM(object):
                           f'Current Best: {self.best_rewards:.2f}'
             print(info_string)
 
-            self.write_stats(a_losses, c_losses, b_losses, entropies, kls)
+            self.write_stats(a_losses, c_losses, b_losses, d_losses, entropies, kls)
 
             mean_rewards = self.episode_rewards.get_mean()
             mean_lengths = self.episode_lengths.get_mean()
@@ -267,6 +277,7 @@ class HANDEM(object):
         self.set_eval()
         obs_dict = self.env.reset()
         while True:
+            # forward pass through explorer
             input_dict = {
                 'obs': self.obs_mean_std(obs_dict['obs']),
                 'state': self.state_mean_std(obs_dict['state']),
@@ -281,7 +292,7 @@ class HANDEM(object):
         for _ in range(0, self.critic_mini_epochs):
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states = self.storage[i]
+                    returns, actions, obs, states, _ = self.storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -314,7 +325,7 @@ class HANDEM(object):
             ep_kls = []
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states = self.storage[i]
+                    returns, actions, obs, states, _ = self.storage[i]
 
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
@@ -372,6 +383,25 @@ class HANDEM(object):
             kls.append(av_kls)
         return a_losses, b_losses, entropies, kls
         
+    def train_discriminator(self):
+        d_losses = []
+        for _ in range(self.discriminator_epochs):
+            for i in range(len(self.storage)):
+                _, _, _, _, _, _, _, _, _, proprio_hist = self.storage[i]
+                proprio_hist = self.hist_mean_std(proprio_hist)
+                # forward pass
+                disc_preds = self.discriminator(proprio_hist)
+                # compute discriminator loss
+                d_loss = torch.nn.functional.cross_entropy(disc_preds, self.labels)
+                # update discriminator
+                self.disc_optimizer.zero_grad()
+                d_loss.backward()
+                if self.truncate_grads:
+                    torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), self.grad_norm)
+                self.disc_optimizer.step()
+                d_losses.append(d_loss)
+        return d_losses
+
     def train_epoch(self):
         # collect minibatch data
         _t = time.time()
@@ -386,9 +416,11 @@ class HANDEM(object):
         c_losses = self.train_critic()
         # train the actor
         a_losses, b_losses, entropies, kls = self.train_actor()
+        # train the discriminator
+        d_losses = self.train_discriminator()
 
         self.rl_train_time += (time.time() - _t)
-        return a_losses, c_losses, b_losses, entropies, kls
+        return a_losses, c_losses, b_losses, d_losses, entropies, kls
 
     def play_steps(self):
         for n in range(self.horizon_length):
@@ -396,6 +428,7 @@ class HANDEM(object):
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])
+            self.storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:
                 self.storage.update_data(k, n, res_dict[k])
             # do env step
