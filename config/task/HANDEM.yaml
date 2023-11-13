@@ -3,19 +3,10 @@ defaults:
 
 name: HANDEM
 
-handem:
-  num_classes: 4
-
 env:
-  object: ["cylinder", "cube", "13x6_cuboid", "10x8x8x4_L"]
+  object_dataset: '3DPrintedShapes'
   episodeLength: 512
   use_saved_grasps: False
-  saved_grasps: 
-    cylinder:
-    cube:
-    13x6_cuboid: 
-    10x8x8x4_L:
-  saved_tree: 
 
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
