@@ -20,8 +20,12 @@ class MLP(nn.Module):
         return self.mlp(x)
 
 class Discriminator(nn.Module):
-    def __init__(self, proprio_dim, proprio_hist_len, units, num_classes):
+    def __init__(self, kwargs):
         super(Discriminator, self).__init__()
+        proprio_dim = kwargs.pop("proprio_dim")
+        proprio_hist_len = kwargs.pop("proprio_hist_len")
+        units = kwargs.pop("units")
+        num_classes = kwargs.pop("num_classes")
         units.append(num_classes)
         self.mlp = MLP(units, proprio_dim * proprio_hist_len)
 
@@ -29,7 +33,6 @@ class Discriminator(nn.Module):
         # x: tensor of size (B x proprio_hist_len x proprio_dim)
         x = x.flatten(1)
         x = self.mlp(x)
-        x = self.low_dim_proj(x)
         x = F.log_softmax(x, dim=-1)
         return x
 

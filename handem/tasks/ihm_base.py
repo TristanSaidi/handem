@@ -286,7 +286,7 @@ class IHMBase(VecTask):
         objects_dir = os.path.join('object_datasets', self.object_dataset, 'urdfs')
         object_dataset_path = os.path.join(asset_root, objects_dir)
         dataset_files = os.listdir(object_dataset_path)
-        self.num_classes = len(dataset_files)
+        self.num_objects = len(dataset_files)
         # extract assets and labels, store in dataset
         self.dataset = []
         for file in dataset_files:
@@ -471,7 +471,7 @@ class IHMBase(VecTask):
         self.target_ur5e_joint_pos = self.default_ur5e_joint_pos.repeat(self.num_envs, 1)
 
     def _allocate_task_buffer(self, num_envs):
-        self.prop_hist_len = self.cfg["env"]["adaptation"]["propHistoryLen"]
+        self.prop_hist_len = self.cfg["env"]["propHistoryLen"]
         self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs), device=self.device, dtype=torch.float)
 
     def _refresh_tensors(self):
@@ -551,7 +551,6 @@ class IHMBase(VecTask):
         cur_obs_buf = torch.cat(list(obs.values()), dim=-1)
         cur_state_buf = torch.cat(list(states.values()), dim=-1)
         self.obs_buf_lag_history[:] = torch.cat([prev_obs_buf, cur_obs_buf.unsqueeze(1)], dim=1)
-
         # refill the initialized buffers
         at_reset_env_ids = self.at_reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.obs_buf_lag_history[at_reset_env_ids] = cur_obs_buf[at_reset_env_ids].unsqueeze(1)

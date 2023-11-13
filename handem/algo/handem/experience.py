@@ -35,6 +35,7 @@ class ExperienceBuffer(Dataset):
         self.storage_dict = {
             "obses": torch.zeros((self.transitions_per_env, self.num_envs, self.obs_dim), dtype=torch.float32, device=self.device),
             "proprio_hist": torch.zeros((self.transitions_per_env, self.num_envs, self.proprio_hist_len, self.obs_dim), dtype=torch.float32, device=self.device),
+            "object_labels": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
             "states": torch.zeros((self.transitions_per_env, self.num_envs, self.state_dim), dtype=torch.float32, device=self.device),
             "rewards": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
             "values": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
@@ -75,6 +76,7 @@ class ExperienceBuffer(Dataset):
             input_dict["obses"],
             input_dict["states"],
             input_dict["proprio_hist"],
+            input_dict["object_labels"],
         )
 
     def update_mu_sigma(self, mu, sigma):

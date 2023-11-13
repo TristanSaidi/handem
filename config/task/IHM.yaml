@@ -13,6 +13,7 @@ env:
 
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
+  propHistoryLen: 30
 
   rotationAxis: 2 # 0: X, 1: Y, 2: Z
   envSpacing: 0.75
@@ -66,8 +67,6 @@ env:
     ur5e_joint_lower_lim: [ -3.14, -3.14, -3.14, -3.14, -3.14, -3.14 ]
     ur5e_joint_upper_lim: [ 3.14, 3.14, 3.14, 3.14, 3.14, 3.14 ]
 
-  adaptation:
-    propHistoryLen: 30
     
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False

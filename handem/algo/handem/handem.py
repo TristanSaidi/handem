@@ -48,7 +48,7 @@ class HANDEM(object):
         self.explorer = ActorCritic(ppo_net_config)
         self.explorer.to(self.device)
         # ---- Discriminator ----
-        self.proprio_hist_len = full_config.task["adaptation"]["propHistoryLen"]
+        self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
         self.proprio_dim = self.env.num_obs
         self.num_classes = self.env.num_objects
         disc_net_config = {
@@ -67,7 +67,7 @@ class HANDEM(object):
         self.hist_mean_std = RunningMeanStd((self.proprio_hist_len, self.proprio_dim)).to(self.device)
         # ---- Labels ----
         object_labels = self.env.object_labels
-        self.labels = torch.tensor(object_labels, device=self.device)
+        self.labels = torch.tensor(object_labels, device=self.device).unsqueeze(-1)
         # ---- Output Dir ----
         # allows us to specify a folder where all experiments will reside
         self.output_dir = output_dir
@@ -292,7 +292,7 @@ class HANDEM(object):
         for _ in range(0, self.critic_mini_epochs):
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, _ = self.storage[i]
+                    returns, actions, obs, states, _, _ = self.storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -325,7 +325,7 @@ class HANDEM(object):
             ep_kls = []
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, _ = self.storage[i]
+                    returns, actions, obs, states, _, _ = self.storage[i]
 
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
@@ -387,12 +387,13 @@ class HANDEM(object):
         d_losses = []
         for _ in range(self.discriminator_epochs):
             for i in range(len(self.storage)):
-                _, _, _, _, _, _, _, _, _, proprio_hist = self.storage[i]
+                _, _, _, _, _, _, _, _, _, proprio_hist, labels = self.storage[i]
                 proprio_hist = self.hist_mean_std(proprio_hist)
                 # forward pass
-                disc_preds = self.discriminator(proprio_hist)
+                disc_preds = self.discriminator(proprio_hist).to(self.device)
                 # compute discriminator loss
-                d_loss = torch.nn.functional.cross_entropy(disc_preds, self.labels)
+                labels = labels.squeeze(-1).type(torch.LongTensor).to(self.device)
+                d_loss = torch.nn.functional.nll_loss(disc_preds, labels)
                 # update discriminator
                 self.disc_optimizer.zero_grad()
                 d_loss.backward()
@@ -429,6 +430,7 @@ class HANDEM(object):
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])
             self.storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
+            self.storage.update_data('object_labels', n, self.labels) # storing this allows us to vary batchsize without trouble
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:
                 self.storage.update_data(k, n, res_dict[k])
             # do env step
