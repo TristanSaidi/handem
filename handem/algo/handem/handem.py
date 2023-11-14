@@ -66,8 +66,7 @@ class HANDEM(object):
         self.value_mean_std = RunningMeanStd((1,)).to(self.device)
         self.hist_mean_std = RunningMeanStd((self.proprio_hist_len, self.proprio_dim)).to(self.device)
         # ---- Labels ----
-        object_labels = self.env.object_labels
-        self.labels = torch.tensor(object_labels, device=self.device).unsqueeze(-1)
+        self.labels = self.env.object_labels.clone().unsqueeze(-1)
         # ---- Output Dir ----
         # allows us to specify a folder where all experiments will reside
         self.output_dir = output_dir
@@ -426,6 +425,9 @@ class HANDEM(object):
     def play_steps(self):
         for n in range(self.horizon_length):
             res_dict = self.model_act(self.obs)
+            # update environment with discriminator prediction
+            discriminator_output = res_dict['disc_preds']
+            self.env.update_discriminator_output(discriminator_output)
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])

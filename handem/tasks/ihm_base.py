@@ -376,6 +376,8 @@ class IHMBase(VecTask):
             self.gym.set_actor_rigid_shape_properties(env_ptr, object_actor, object_props)
             #### object rigid shape properties ####
 
+        self.object_labels = to_torch(self.object_labels, dtype=torch.long, device=self.device)
+
         # Rigid body handles used later to compute object pose and contact forces
         self.rigid_body_handles = {}
         self.rigid_body_handles["object"] = self.gym.find_actor_rigid_body_handle(env_ptr, self.actor_handles["object"][0], "object")
