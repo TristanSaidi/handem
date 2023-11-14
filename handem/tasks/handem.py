@@ -1,15 +1,14 @@
 import os
 import numpy as np
 import torch
+import gc
 
 from isaacgym import gymtorch
-
 from isaacgym.torch_utils import quat_conjugate, quat_mul
 from termcolor import cprint
-
 from handem.tasks.ihm_base import IHMBase
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
-import gc
+from time import sleep
 
 class HANDEM(IHMBase):
     def __init__(
@@ -55,6 +54,10 @@ class HANDEM(IHMBase):
     def update_discriminator_output(self, output):
         self.discriminator_log_softmax = output.clone().detach()
 
+    def get_disc_correct(self):
+        "return whether last discriminator prediction was correct"
+        return self.correct.clone().detach()
+
     def _setup_reset_config(self):
         self.confidence_threshold = self.cfg["env"]["reset"]["confidence_threshold"] * torch.ones((self.num_envs, 1), device=self.device)
         self.obj_xyz_lower_lim = self.cfg["env"]["reset"]["obj_xyz_lower_lim"]
@@ -69,6 +72,16 @@ class HANDEM(IHMBase):
             torch.ones_like(disc_pred), 
             torch.zeros_like(disc_pred)
         ).unsqueeze(1)
+
+        ########### print information for inference-time debugging ###########
+        if self.headless == False:
+            color = 'green' if correct[0] else 'red'
+            bold = ["bold"] if disc_max_softmax[0] > self.confidence_threshold[0] else None
+            cprint(f'Discriminator prediction: {disc_pred[0]}, confidence: {disc_max_softmax[0]:.2f}', color, end='\r', attrs=bold)
+            if color=='green' and bold is not None:
+                sleep(3)
+        ########### print information for inference-time debugging ###########
+        
         disc_max_softmax = disc_max_softmax.unsqueeze(1)
         # mask out correct predictions with low confidence
         correct = torch.where(
@@ -98,7 +111,6 @@ class HANDEM(IHMBase):
         reward = disc_pred_reward + disc_loss_reward
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
-        
 
     def check_reset(self):
         super().check_reset() # check if the object is out of bounds

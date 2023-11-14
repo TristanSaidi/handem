@@ -219,11 +219,10 @@ class HANDEM(object):
             checkpoint_name = f'ep_{self.epoch_num}_step_{int(self.agent_steps // 1e6):04}M_reward_{mean_rewards:.2f}'
 
             # update success rate if environment has returned such data
-            if self.num_success.current_size > 0:
-                running_mean_success = self.num_success.get_mean()
-                running_mean_term = self.num_episodes.get_mean()
-                mean_success_rate = running_mean_success / running_mean_term
-                self.writer.add_scalar('success_rate/step', mean_success_rate, self.agent_steps)
+            running_mean_success = self.num_success.get_mean()
+            running_mean_term = self.num_episodes.get_mean()
+            mean_success_rate = running_mean_success / running_mean_term
+            self.writer.add_scalar('success_rate/step', mean_success_rate, self.agent_steps)
 
             if self.save_freq > 0:
                 if self.epoch_num % self.save_freq == 0:
@@ -456,12 +455,12 @@ class HANDEM(object):
             done_indices = self.dones.nonzero(as_tuple=False)
             self.episode_rewards.update(self.current_rewards[done_indices])
             self.episode_lengths.update(self.current_lengths[done_indices])
-            # if success in info, then update success rate
-            if 'success' in infos:
-                num_success = infos['success']
-                self.num_success.update(num_success)
-                num_terminations = self.dones
-                self.num_episodes.update(num_terminations)
+            # update prediction success rate
+            success = self.env.get_disc_correct()
+            self.num_success.update(success)
+            num_terminations = self.dones
+            self.num_episodes.update(num_terminations)
+
             assert isinstance(infos, dict), 'Info Should be a Dict'
             self.extra_info = {}
             for k, v in infos.items():
