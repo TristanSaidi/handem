@@ -41,6 +41,7 @@ class HANDEM(IHMBase):
         # current discriminator output
         self.discriminator_log_softmax = torch.ones((self.num_envs, self.num_objects), device=self.device)
         self.discriminator_log_softmax = torch.log(self.discriminator_log_softmax / self.num_objects)
+        self.confidence = torch.zeros((self.num_envs, 1), device=self.device)
 
     def _setup_rotation_axis(self, axis_idx=2):
         self.rotation_axis = torch.zeros((self.num_envs, 3), device=self.device)
@@ -97,17 +98,15 @@ class HANDEM(IHMBase):
         reward = disc_pred_reward + disc_loss_reward
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
+        
 
     def check_reset(self):
         super().check_reset() # check if the object is out of bounds
         # task specific reset conditions
         reset = self.reset_buf[:]
         # if confident
-        reset = torch.where(
-            self.confidence.unsqueeze(1) > self.confidence_threshold, 
-            torch.ones_like(self.reset_buf), 
-            reset
-        )
+        confident = (self.confidence > self.confidence_threshold).int().squeeze(1)
+        reset = torch.where(confident == 1, torch.ones_like(self.reset_buf), reset)
         # if end of episode
         reset = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), reset)
         self.reset_buf[:] = reset
