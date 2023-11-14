@@ -298,7 +298,7 @@ class IHMBase(VecTask):
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, asset_options)
             # add to dataset
             self.dataset.append((object_asset, label))
-
+        
         self.actor_handles = {"robot": [], "object": [], "table": [], "table_stand": []}
 
         self.envs = []
@@ -326,8 +326,10 @@ class IHMBase(VecTask):
             self.actor_handles["table"].append(table_actor)
             self.actor_handles["table_stand"].append(table_stand_actor)
             
-            # choose object at random from dataset
-            idx = random.choice(range(len(self.dataset)))
+            # choose object at random from dataset, unless overridden in config
+            object_override = self.cfg["env"].get("objectOverride", None)
+            assert not (object_override is not None and self.headless), "Cannot override object in train mode"
+            idx = random.choice(range(len(self.dataset))) if object_override is None else object_override
             label = self.dataset[idx][1]
             self.object_labels.append(label)
             object_asset = self.dataset[idx][0]
