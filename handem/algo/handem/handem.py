@@ -265,7 +265,7 @@ class HANDEM(object):
 
     def restore_test(self, fn):
         checkpoint = torch.load(fn)
-        self.explorer.load_state_dict(checkpoint['model'])
+        self.explorer.load_state_dict(checkpoint['explorer'])
         self.discriminator.load_state_dict(checkpoint['discriminator'])
         if self.normalize_input:
             self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
