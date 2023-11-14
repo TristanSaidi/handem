@@ -279,10 +279,15 @@ class HANDEM(object):
             # forward pass through explorer
             input_dict = {
                 'obs': self.obs_mean_std(obs_dict['obs']),
-                'state': self.state_mean_std(obs_dict['state']),
+                'state': self.state_mean_std(obs_dict['state'])
             }
             mu, _ = self.explorer.act_inference(input_dict)
             mu = torch.clamp(mu, -1.0, 1.0)
+            # update environment with discriminator prediction
+            hist = self.hist_mean_std(obs_dict['proprio_hist'])
+            discriminator_output = self.discriminator(hist)
+            self.env.update_discriminator_output(discriminator_output)
+            # do env step
             obs_dict, r, done, info = self.env.step(mu)
 
     def train_critic(self):
