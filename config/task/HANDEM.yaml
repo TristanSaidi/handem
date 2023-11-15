@@ -5,24 +5,25 @@ name: HANDEM
 
 env:
   object_dataset: '3DPrintedShapes'
-  objectOverride:
+  objectOverride: 1
   episodeLength: 300
   use_saved_grasps: False
+  rand_object_reset: True
 
   # observation and state
-  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "ftip_contact_force"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
 
   reset:
     confidence_threshold: 0.98
-    obj_xyz_lower_lim: [0.105, 0.45, 0.0]
-    obj_xyz_upper_lim: [0.145, 0.55, 0.3]
+    obj_xyz_lower_lim: [0.0, 0.35, 0.0]
+    obj_xyz_upper_lim: [0.3, 0.65, 0.5]
 
   # reward terms
   reward:
     # correct discriminator prediction
-    disc_pred_reward: 500.0
+    disc_pred_reward: 100.0
     # log likelihood reward
-    disc_loss_reward: 1.0
+    disc_loss_reward: 0.1
 
 
