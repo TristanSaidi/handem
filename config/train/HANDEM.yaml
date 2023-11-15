@@ -32,7 +32,7 @@ handem:
   # snapshot setting
   save_best_after: 0
   save_frequency: 500
-  max_agent_steps: 5000000000
+  max_agent_steps: 100000000
   ppo_network:
     mlp:
       actor_units: [512, 512, 256, 128]
