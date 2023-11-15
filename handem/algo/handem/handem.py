@@ -111,10 +111,10 @@ class HANDEM(object):
         writer = SummaryWriter(self.tb_dif)
         self.writer = writer
 
-        self.episode_rewards = AverageScalarMeter(100)
-        self.episode_lengths = AverageScalarMeter(100)
-        self.num_success = AverageScalarMeter(100)
-        self.num_episodes = AverageScalarMeter(100)
+        self.episode_rewards = AverageScalarMeter(1000)
+        self.episode_lengths = AverageScalarMeter(1000)
+        self.num_success = AverageScalarMeter(1000)
+        self.num_episodes = AverageScalarMeter(1000)
 
         self.obs = None
         self.epoch_num = 0
@@ -221,7 +221,7 @@ class HANDEM(object):
             # update success rate if environment has returned such data
             running_mean_success = self.num_success.get_mean()
             running_mean_term = self.num_episodes.get_mean()
-            mean_success_rate = running_mean_success / running_mean_term
+            mean_success_rate = running_mean_success / running_mean_term if running_mean_term > 0 else 0.0
             self.writer.add_scalar('success_rate/step', mean_success_rate, self.agent_steps)
 
             if self.save_freq > 0:
