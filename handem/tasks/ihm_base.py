@@ -18,6 +18,8 @@ from handem.tasks.base.vec_task import VecTask
 
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
+from handem.utils.misc import sample_random_quat
+
 from handem.utils.torch_utils import to_torch
 import pickle
 from datetime import datetime
@@ -74,6 +76,7 @@ class IHMBase(VecTask):
         self.out_of_bounds = torch.zeros_like(self.reset_buf, device=self.device)
         self.contactBoolForceThreshold = cfg["env"]["contactBoolForceThreshold"]
         self.action_scale = to_torch(cfg["env"]["actionScale"], device=self.device)
+        self.rand_object_reset = cfg["env"].get("rand_object_reset", False)
 
         self.create_tensor_views()
         self.gym.simulate(self.sim)
@@ -235,7 +238,7 @@ class IHMBase(VecTask):
             robot_dof_props["upper"][i] = self.robot_dof_upper_limits[i]
 
         # Create table asset
-        table_pos = [0.125, 0.5, 0.15]
+        table_pos = [0.125, 0.5, 0.1625]
         table_thickness = 0.05
         table_opts = gymapi.AssetOptions()
         table_opts.fix_base_link = True
@@ -664,6 +667,7 @@ class IHMBase(VecTask):
         self.reset_buf[:] = reset
 
     def load_grasps(self):
+        assert not self.rand_object_reset, "Conflicting reset configurations specified"
         self.saved_grasp_states = {}
         cache_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cache"))
         # loop through all objects
@@ -698,6 +702,15 @@ class IHMBase(VecTask):
         object_vel = to_torch(self.default_object_vel, device=self.device).repeat(len(env_idx), 1)
         return hand_joint_pos, hand_joint_pos, object_pos, object_rot, object_vel
 
+    def sample_rand_object_pose(self, n, x=None, y=None, z=None, range=0.01):
+        """ Samples n random object poses. If x,y,z provided, those fields will be fixed to those values"""
+        x = self.default_object_pos[0] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if x is None else x
+        y = self.default_object_pos[1] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if y is None else y
+        z = self.default_object_pos[2] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if z is None else z
+        pos = torch.stack([x, y, z], dim=1).to(self.device)
+        quat = sample_random_quat(n, device=self.device)
+        return pos, quat
+
     def reset_idx(self, env_idx):
         hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel = self.sample_grasp(env_idx)
         self.hand_dof_pos[env_idx, :] = 0.0
@@ -705,6 +718,13 @@ class IHMBase(VecTask):
         self.ur5e_dof_pos[env_idx, :] = self.default_ur5e_joint_pos
         self.ur5e_dof_vel[env_idx, :] = 0.0
         self.target_hand_joint_pos[env_idx, :] = target_hand_joint_pos
+        
+        if self.rand_object_reset:
+            # fix z to default
+            z = self.default_object_pos[2].repeat(len(env_idx))
+            object_pos, object_rot = self.sample_rand_object_pose(len(env_idx), z=z)
+            object_vel = torch.zeros_like(object_vel)
+
         self.root_state_tensor[self.object_indices[env_idx], :3] = object_pos
         self.root_state_tensor[self.object_indices[env_idx], 3:7] = object_rot
         self.root_state_tensor[self.object_indices[env_idx], 7:13] = object_vel
