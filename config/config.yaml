@@ -55,7 +55,7 @@ headless: True
 defaults:
   - _self_
   - task: IHM
-  - train: PPO
+  - train: HANDEM
   # - hydra/job_logging: disabled
 
 # set the directory where the output files get saved

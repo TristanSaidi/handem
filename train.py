@@ -14,7 +14,7 @@ from termcolor import cprint
 from omegaconf import DictConfig, OmegaConf
 from hydra.utils import to_absolute_path
 
-from handem.algo.ppo.ppo import PPO
+from handem.algo.handem.handem import HANDEM
 from handem.tasks import task_map
 from handem.utils.reformat import omegaconf_to_dict, print_dict
 from handem.utils.misc import set_np_formatting, set_seed, git_hash, git_diff_config
@@ -53,7 +53,7 @@ def main(cfg: DictConfig):
         force_render=False,
     )
 
-    output_dif = os.path.join('outputs', cfg.train.ppo.output_name)
+    output_dif = os.path.join('outputs', 'policies', cfg.train.handem.output_name)
     os.makedirs(output_dif, exist_ok=True)
     agent = eval(cfg.train.algo)(env, output_dif, full_config=cfg)
     if cfg.test:
@@ -66,11 +66,11 @@ def main(cfg: DictConfig):
 
         # check whether execute train by mistake:
         best_ckpt_path = os.path.join(
-            'outputs', cfg.train.ppo.output_name, "nn"
+            'outputs', cfg.train.handem.output_name, "nn"
         )
         if os.path.exists(best_ckpt_path):
             user_input = input(
-                f'are you intentionally going to overwrite files in {cfg.train.ppo.output_name}, type yes to continue \n')
+                f'are you intentionally going to overwrite files in {cfg.train.handem.output_name}, type yes to continue \n')
             if user_input != 'yes':
                 exit()
 

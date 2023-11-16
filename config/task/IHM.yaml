@@ -3,26 +3,23 @@ physics_engine: ${..physics_engine}
 # if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
-  
-  object: cube 
+  object_dataset: '3DPrintedShapes'
   # default positions
-  default_hand_joint_pos: [0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45, 0, 0.25, 0.45]
+  default_hand_joint_pos: [0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0]
   default_ur5e_joint_pos: [-1.57, -1.57, -1.57, -1.57, 1.57, 0]
   default_object_pos: [0.125, 0.5, 0.25]
-
-  # default object orientation can be specified with euler angles or quaternion. If default_object_euler is provided
-  # then it takes precedence.
   default_object_euler: [0, 0, 3.14]
 
-  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "object_orientation"]
-  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos", "target_orientation"]
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
+  propHistoryLen: 30
 
   rotationAxis: 2 # 0: X, 1: Y, 2: Z
   envSpacing: 0.75
   episodeLength: 300
   enableDebugVis: False
   aggregateMode: 1
-  controlFrequencyInv: 1 # for manifold_ihm
+  controlFrequencyInv: 1
   clipObservations: 5.0
   clipActions: 1.0
   contactBoolForceThreshold: 1
@@ -34,7 +31,6 @@ env:
   visualization:
     visObjAxes: True
     visContactVec: True
-    visAdaptPred: False # visualize predictions during adaptation (pose etc.)
   # logging configurations
   logging:
     enableLog: False
@@ -52,8 +48,8 @@ env:
 
   hand_params:
     # actuator params
-    stiffness: 30
-    damping: 5
+    stiffness: 3.0
+    damping: 0.1
     velocityLimit: 4
     effortLimit: 1
     jointFriction: 0.0
@@ -70,8 +66,6 @@ env:
     ur5e_joint_lower_lim: [ -3.14, -3.14, -3.14, -3.14, -3.14, -3.14 ]
     ur5e_joint_upper_lim: [ 3.14, 3.14, 3.14, 3.14, 3.14, 3.14 ]
 
-  adaptation:
-    propHistoryLen: 30
     
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False

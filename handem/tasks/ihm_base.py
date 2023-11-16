@@ -18,8 +18,9 @@ from handem.tasks.base.vec_task import VecTask
 
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
+from handem.utils.misc import sample_random_quat
+
 from handem.utils.torch_utils import to_torch
-from scipy import interpolate
 import pickle
 from datetime import datetime
 
@@ -75,6 +76,7 @@ class IHMBase(VecTask):
         self.out_of_bounds = torch.zeros_like(self.reset_buf, device=self.device)
         self.contactBoolForceThreshold = cfg["env"]["contactBoolForceThreshold"]
         self.action_scale = to_torch(cfg["env"]["actionScale"], device=self.device)
+        self.rand_object_reset = cfg["env"].get("rand_object_reset", False)
 
         self.create_tensor_views()
         self.gym.simulate(self.sim)
@@ -236,7 +238,7 @@ class IHMBase(VecTask):
             robot_dof_props["upper"][i] = self.robot_dof_upper_limits[i]
 
         # Create table asset
-        table_pos = [0.125, 0.5, 0.15]
+        table_pos = [0.125, 0.5, 0.1625]
         table_thickness = 0.05
         table_opts = gymapi.AssetOptions()
         table_opts.fix_base_link = True
@@ -280,25 +282,33 @@ class IHMBase(VecTask):
 
         if self.physics_engine == gymapi.SIM_PHYSX:
             asset_options.use_physx_armature = False
-        self.object = self.cfg["env"]["object"]
-        if isinstance(self.object, str):
-            self.object_list = [self.object]
-        else:
-            self.object_list = list(self.object)
 
-        object_asset_list = []
-        for obj in self.object_list:
-            object_asset_file = os.path.join("objects", f"{obj}.urdf")
+        # load object dataset
+        # is there a better way to do this?
+        self.object_dataset = self.cfg["env"]["object_dataset"]
+        objects_dir = os.path.join('object_datasets', self.object_dataset, 'urdfs')
+        object_dataset_path = os.path.join(asset_root, objects_dir)
+        dataset_files = os.listdir(object_dataset_path)
+        self.num_objects = len(dataset_files)
+        # extract assets and labels, store in dataset
+        self.dataset = []
+        for file in dataset_files:
+            # extract label from filename
+            label = ''.join(list(filter(lambda x: x.isdigit(), file)))
+            label = int(label)
+            # load asset
+            object_asset_file = os.path.join(objects_dir, file)
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, asset_options)
-            object_asset_list.append(object_asset)
-
+            # add to dataset
+            self.dataset.append((object_asset, label))
+        
         self.actor_handles = {"robot": [], "object": [], "table": [], "table_stand": []}
 
         self.envs = []
         self.object_indices = []
 
-        # store object name for each environment (for obj agnostic training)
-        self.object_name_array = []
+        # store object labels for each environment
+        self.object_labels = []
 
         for i in range(num_envs):
             # create env instance
@@ -319,9 +329,13 @@ class IHMBase(VecTask):
             self.actor_handles["table"].append(table_actor)
             self.actor_handles["table_stand"].append(table_stand_actor)
             
-            idx = random.choice(range(len(self.object_list)))
-            self.object_name_array.append(self.object_list[idx])
-            object_asset = object_asset_list[idx]
+            # choose object at random from dataset, unless overridden in config
+            object_override = self.cfg["env"].get("objectOverride", None)
+            assert not (object_override is not None and self.headless), "Cannot override object in train mode"
+            idx = random.choice(range(len(self.dataset))) if object_override is None else object_override
+            label = self.dataset[idx][1]
+            self.object_labels.append(label)
+            object_asset = self.dataset[idx][0]
             
             object_actor = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 0)
             self.gym.set_rigid_body_color(
@@ -366,6 +380,8 @@ class IHMBase(VecTask):
             self.gym.set_actor_rigid_shape_properties(env_ptr, robot_actor, robot_props)
             self.gym.set_actor_rigid_shape_properties(env_ptr, object_actor, object_props)
             #### object rigid shape properties ####
+
+        self.object_labels = to_torch(self.object_labels, dtype=torch.long, device=self.device)
 
         # Rigid body handles used later to compute object pose and contact forces
         self.rigid_body_handles = {}
@@ -462,7 +478,7 @@ class IHMBase(VecTask):
         self.target_ur5e_joint_pos = self.default_ur5e_joint_pos.repeat(self.num_envs, 1)
 
     def _allocate_task_buffer(self, num_envs):
-        self.prop_hist_len = self.cfg["env"]["adaptation"]["propHistoryLen"]
+        self.prop_hist_len = self.cfg["env"]["propHistoryLen"]
         self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs), device=self.device, dtype=torch.float)
 
     def _refresh_tensors(self):
@@ -542,7 +558,6 @@ class IHMBase(VecTask):
         cur_obs_buf = torch.cat(list(obs.values()), dim=-1)
         cur_state_buf = torch.cat(list(states.values()), dim=-1)
         self.obs_buf_lag_history[:] = torch.cat([prev_obs_buf, cur_obs_buf.unsqueeze(1)], dim=1)
-
         # refill the initialized buffers
         at_reset_env_ids = self.at_reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.obs_buf_lag_history[at_reset_env_ids] = cur_obs_buf[at_reset_env_ids].unsqueeze(1)
@@ -626,8 +641,6 @@ class IHMBase(VecTask):
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
         if self.states_buf is not None:
             self.obs_dict["state"] = self.states_buf.clone()
-        if getattr(self, "success", None) is not None:
-            self.extras["success"] = self.success
         return self.obs_dict, self.rew_buf, self.reset_buf, self.extras
 
     def compute_reward(self, actions=None):
@@ -654,28 +667,16 @@ class IHMBase(VecTask):
         self.reset_buf[:] = reset
 
     def load_grasps(self):
+        assert not self.rand_object_reset, "Conflicting reset configurations specified"
         self.saved_grasp_states = {}
         cache_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cache"))
         # loop through all objects
-        for obj in self.object_list:
-            self.saved_grasp_states[obj] = {}
-            path = self.cfg["env"]["saved_grasps"][obj]
-            grasp_file = os.path.join(cache_root, path)
-            cprint(f"Loading grasps from {grasp_file}", "blue", attrs=["bold"])
-            self.saved_grasp_states[obj] = torch.from_numpy(np.load(grasp_file)).to(self.device)
+        path = self.cfg["env"]["saved_grasps"]
+        grasp_file = os.path.join(cache_root, path)
+        cprint(f"Loading grasps from {grasp_file}", "blue", attrs=["bold"])
+        self.saved_grasp_states = torch.from_numpy(np.load(grasp_file)).to(self.device)
 
-    def load_tree(self):
-        # load tree, to be called from PPO class
-        cache_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cache"))
-        tree_file = os.path.join(cache_root, self.cfg["env"]["saved_tree"])
-        with open(tree_file, 'rb') as f:
-            self.tree = pickle.load(f)
-        cprint(f"Loading tree from {tree_file}", "green", attrs=["bold"])
-        # check to make sure state space of tree matches current
-        state_space = list(self.tree["state_space_map"].keys())
-        assert state_space == self.cfg["env"]["feedbackState"], "state space of loaded tree does not match current state space"
-
-    def sample_grasp(self, env_idx, objects):
+    def sample_grasp(self, env_idx):
         """Sample new grasp pose"""
         if self.saved_grasp_states is None:
             return self.sample_default_grasp(env_idx)
@@ -684,19 +685,13 @@ class IHMBase(VecTask):
         object_pos = torch.zeros((len(env_idx), 3), device=self.device)
         object_rot = torch.zeros((len(env_idx), 4), device=self.device)
         object_vel = torch.zeros((len(env_idx), 6), device=self.device)
-        for obj in self.object_list:
-            # which environments have been assigned to this object
-            idx_o = [i for i, x in enumerate(objects) if x == obj]
-            n = len(idx_so)
-            # sample a grasp for each environment assigned to this scale
-            if n == 0:
-                continue
-            grasp_idx = torch.randint(len(self.saved_grasp_states[obj]), (n,))
-            hand_joint_pos[idx_so, :]= self.saved_grasp_states[obj][grasp_idx][:, :15]
-            target_hand_joint_pos[idx_so, :] = self.saved_grasp_states[obj][grasp_idx][:, 15:30]
-            object_pos[idx_so, :] = self.saved_grasp_states[obj][grasp_idx][:, 30:33]
-            object_rot[idx_so, :] = self.saved_grasp_states[obj][grasp_idx][:, 33:37]
-            object_vel[idx_so, :] = self.saved_grasp_states[obj][grasp_idx][:, 37:]
+
+        grasp_idx = torch.randint(len(self.saved_grasp_states), (n,))
+        hand_joint_pos[idx_so, :]= self.saved_grasp_states[grasp_idx][:, :15]
+        target_hand_joint_pos[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 15:30]
+        object_pos[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 30:33]
+        object_rot[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 33:37]
+        object_vel[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 37:]
         return hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel
 
     def sample_default_grasp(self, env_idx):
@@ -707,15 +702,29 @@ class IHMBase(VecTask):
         object_vel = to_torch(self.default_object_vel, device=self.device).repeat(len(env_idx), 1)
         return hand_joint_pos, hand_joint_pos, object_pos, object_rot, object_vel
 
-    def reset_idx(self, env_idx):
-        objects = [self.object_name_array[idx] for idx in env_idx]
+    def sample_rand_object_pose(self, n, x=None, y=None, z=None, range=0.01):
+        """ Samples n random object poses. If x,y,z provided, those fields will be fixed to those values"""
+        x = self.default_object_pos[0] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if x is None else x
+        y = self.default_object_pos[1] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if y is None else y
+        z = self.default_object_pos[2] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if z is None else z
+        pos = torch.stack([x, y, z], dim=1).to(self.device)
+        quat = sample_random_quat(n, device=self.device)
+        return pos, quat
 
-        hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel = self.sample_grasp(env_idx, objects)
+    def reset_idx(self, env_idx):
+        hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel = self.sample_grasp(env_idx)
         self.hand_dof_pos[env_idx, :] = 0.0
         self.hand_dof_vel[env_idx, :] = 0.0
         self.ur5e_dof_pos[env_idx, :] = self.default_ur5e_joint_pos
         self.ur5e_dof_vel[env_idx, :] = 0.0
         self.target_hand_joint_pos[env_idx, :] = target_hand_joint_pos
+        
+        if self.rand_object_reset:
+            # fix z to default
+            z = self.default_object_pos[2].repeat(len(env_idx))
+            object_pos, object_rot = self.sample_rand_object_pose(len(env_idx), z=z)
+            object_vel = torch.zeros_like(object_vel)
+
         self.root_state_tensor[self.object_indices[env_idx], :3] = object_pos
         self.root_state_tensor[self.object_indices[env_idx], 3:7] = object_rot
         self.root_state_tensor[self.object_indices[env_idx], 7:13] = object_vel
@@ -798,6 +807,15 @@ class IHMBase(VecTask):
         contact_viz_vecs = [torch.nan_to_num(contact_viz_vec) for contact_viz_vec in contact_viz_vecs]
         return contact_pos_cuda, contact_viz_vecs
 
+    def compute_ftip_obj_disp(self):
+        object_pos = self.object_pos.clone().unsqueeze(1) # (num_envs, 1, 3)
+        ftip_pos = torch.stack(self.ftip_pos).transpose(0, 1) # (num_envs, num_ftips, 3)
+        # broadcast object position
+        object_pos = object_pos.repeat(1, 5, 1)
+        # want average disp for each env --> (num_envs, 1)
+        ftip_obj_disp = torch.linalg.norm(ftip_pos - object_pos, dim=-1) ** 2
+        total_disp = torch.sum(ftip_obj_disp, dim=1)
+        return total_disp
 
     def random_actions(self) -> torch.Tensor:
         """Returns a buffer with random actions drawn from normal distribution

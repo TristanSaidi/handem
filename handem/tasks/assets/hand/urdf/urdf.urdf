@@ -1,0 +1,442 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<robot name="hand">
+
+  <material name="black">
+    <color rgba="0 0 0 1"/>
+  </material>
+  <material name="gray">
+    <color rgba="0.1 0.1 0.1 1"/>
+  </material>
+  <material name="lightgray">
+    <color rgba="0.8 0.8 0.8 1"/>
+  </material>
+
+  <link name="base_link">
+    <origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/>
+  </link>
+
+  <!-- Finger 1 -->
+  <link name="finger1_proximal">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/proximal.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/proximal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger1_middle">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/middle.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/middle.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger1_distal">
+    <visual>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0"/>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/distal.dae"/>
+      </geometry>
+      <material name="lightgray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0"/>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/distal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger1_distal_tip">
+  </link>
+  <joint name="finger1_proximal_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="finger1_proximal"/>
+    <origin rpy="1.57079633 0 1.57079633" xyz="0.14142136 0.0 0.041"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4" velocity="1.0" lower="-1.0" upper="1.0"/>
+  </joint>
+  <joint name="finger1_middle_joint" type="revolute">
+    <parent link="finger1_proximal"/>
+    <child link="finger1_middle"/>
+    <origin rpy="0 0 0" xyz="0.0 0.0655 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger1_distal_joint" type="revolute">
+    <parent link="finger1_middle"/>
+    <child link="finger1_distal"/>
+    <origin rpy="0 0 0" xyz="0.0 0.069 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger1_distal_tip_joint" type="fixed">
+    <parent link="finger1_distal"/>
+    <child link="finger1_distal_tip"/>
+    <origin rpy="-1.57079633 1.57079633 0" xyz="0.0 0.1035 0.0"/>
+  </joint>
+
+  <!-- Finger 2 -->
+  <link name="finger2_proximal">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/proximal.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/proximal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger2_middle">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/middle.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/middle.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger2_distal">
+    <visual>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/distal.dae"/>
+      </geometry>
+      <material name="lightgray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/distal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger2_distal_tip">
+  </link>
+  <joint name="finger2_proximal_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="finger2_proximal"/>
+    <origin rpy="1.57079633 0 2.82743338823" xyz="0.043701602 0.134499702 0.041"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4" velocity="1.0" lower="-1.0" upper="1.0"/>
+  </joint>
+  <joint name="finger2_middle_joint" type="revolute">
+    <parent link="finger2_proximal"/>
+    <child link="finger2_middle"/>
+    <origin rpy="0 0 0" xyz="0.0 0.0655 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger2_distal_joint" type="revolute">
+    <parent link="finger2_middle"/>
+    <child link="finger2_distal"/>
+    <origin rpy="0 0 0" xyz="0.0 0.069 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger2_distal_tip_joint" type="fixed">
+    <parent link="finger2_distal"/>
+    <child link="finger2_distal_tip"/>
+    <origin rpy="-1.57079633 1.57079633 0" xyz="0.0 0.1035 0.0"/>
+  </joint>
+
+
+  <!-- Finger 3 -->
+  <link name="finger3_proximal">
+     <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/proximal.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/proximal.obj"/>
+      </geometry>
+    </collision>
+     <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger3_middle">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/middle.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/middle.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger3_distal">
+    <visual>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/distal.dae"/>
+      </geometry>
+      <material name="lightgray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/distal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger3_distal_tip">
+  </link>
+  <joint name="finger3_proximal_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="finger3_proximal"/>
+    <origin rpy="1.57079633 0 -2.19911485751" xyz="-0.114412281  0.083125388  0.041"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4" velocity="1.0" lower="-1.0" upper="1.0"/>
+  </joint>
+  <joint name="finger3_middle_joint" type="revolute">
+    <parent link="finger3_proximal"/>
+    <child link="finger3_middle"/>
+    <origin rpy="0 0 0" xyz="0.0 0.0655 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger3_distal_joint" type="revolute">
+    <parent link="finger3_middle"/>
+    <child link="finger3_distal"/>
+    <origin rpy="0 0 0" xyz="0.0 0.069 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger3_distal_tip_joint" type="fixed">
+    <parent link="finger3_distal"/>
+    <child link="finger3_distal_tip"/>
+    <origin rpy="-1.57079633 1.57079633 0" xyz="0.0 0.1035 0.0"/>
+  </joint>
+
+  <!-- Finger 4 -->
+  <link name="finger4_proximal">
+     <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/proximal.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/proximal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger4_middle">
+   <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/middle.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/middle.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger4_distal">
+    <visual>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/distal.dae"/>
+      </geometry>
+      <material name="lightgray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/distal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger4_distal_tip">
+  </link>
+  <joint name="finger4_proximal_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="finger4_proximal"/>
+    <origin rpy="1.57079633 0 -0.94247779607" xyz="-0.114412281 -0.083125388  0.041"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4" velocity="1.0" lower="-1.0" upper="1.0"/>
+  </joint>
+  <joint name="finger4_middle_joint" type="revolute">
+    <parent link="finger4_proximal"/>
+    <child link="finger4_middle"/>
+    <origin rpy="0 0 0" xyz="0.0 0.0655 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger4_distal_joint" type="revolute">
+    <parent link="finger4_middle"/>
+    <child link="finger4_distal"/>
+    <origin rpy="0 0 0" xyz="0.0 0.069 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger4_distal_tip_joint" type="fixed">
+    <parent link="finger4_distal"/>
+    <child link="finger4_distal_tip"/>
+    <origin rpy="-1.57079633 1.57079633 0" xyz="0.0 0.1035 0.0"/>
+  </joint>
+
+
+  <!-- Finger 5 -->
+  <link name="finger5_proximal">
+     <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/proximal.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/proximal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger5_middle">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/middle.dae"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/middle.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger5_distal">
+    <visual>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/visual/distal.dae"/>
+      </geometry>
+      <material name="lightgray"/>
+    </visual>
+    <collision>
+      <origin rpy="0 3.14159265359 0" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="package://hand/urdf/meshes/collision/distal.obj"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.100"/>
+    </inertial>
+  </link>
+  <link name="finger5_distal_tip">
+  </link>
+  <joint name="finger5_proximal_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="finger5_proximal"/>
+    <origin rpy="1.57079633 0 0.31415926535" xyz="0.043701602 -0.134499702  0.041"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4" velocity="1.0" lower="-1.0" upper="1.0"/>
+  </joint>
+  <joint name="finger5_middle_joint" type="revolute">
+    <parent link="finger5_proximal"/>
+    <child link="finger5_middle"/>
+    <origin rpy="0 0 0" xyz="0.0 0.0655 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger5_distal_joint" type="revolute">
+    <parent link="finger5_middle"/>
+    <child link="finger5_distal"/>
+    <origin rpy="0 0 0" xyz="0.0 0.069 0.0"/>
+    <axis xyz="-1 0 0"/>
+    <limit effort="4" velocity="1.0" lower="0.0" upper="1.0"/>
+  </joint>
+  <joint name="finger5_distal_tip_joint" type="fixed">
+    <parent link="finger5_distal"/>
+    <child link="finger5_distal_tip"/>
+    <origin rpy="-1.57079633 1.57079633 0" xyz="0.0 0.1035 0.0"/>
+  </joint>
+</robot>

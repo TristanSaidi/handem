@@ -12,95 +12,115 @@ import torch
 
 from tensorboardX import SummaryWriter
 
-from handem.algo.ppo.experience import ExperienceBuffer
+from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
+from handem.algo.models.models import Discriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 
 
-class PPO(object):
-    def __init__(self, env, output_dif, full_config):
+class HANDEM(object):
+    def __init__(self, env, output_dir, full_config):
         self.device = full_config['rl_device']
-        self.network_config = full_config.train.network
-        self.ppo_config = full_config.train.ppo
+        self.ppo_net_config = full_config.train.handem.ppo_network
+        self.disc_net_config = full_config.train.handem.discriminator_network
+        self.train_config = full_config.train.handem
         # ---- build environment ----
         self.env = env
-        self.num_actors = self.ppo_config['num_actors']
+        self.num_actors = self.train_config['num_actors']
         action_space = self.env.action_space
         self.actions_num = action_space.shape[0]
         self.actions_low = torch.from_numpy(action_space.low.copy()).float().to(self.device)
         self.actions_high = torch.from_numpy(action_space.high.copy()).float().to(self.device)
         self.observation_space = self.env.observation_space
         self.obs_shape = self.observation_space.shape
-        # ---- Model ----
-        self.asymmetric = self.ppo_config['asymmetric']
+        # ---- Explorer ----
+        self.asymmetric = self.train_config['asymmetric']
         self.state_dim = self.env.cfg['env']['numStates']
-        net_config = {
-            'actor_units': self.network_config.mlp.actor_units,
-            'critic_units': self.network_config.mlp.critic_units,
+        ppo_net_config = {
+            'actor_units': self.ppo_net_config.mlp.actor_units,
+            'critic_units': self.ppo_net_config.mlp.critic_units,
             'actions_num': self.actions_num,
             'actor_input_shape': self.obs_shape[0],
             'critic_input_shape': self.state_dim if self.asymmetric else self.obs_shape[0],
             'asymmetric': self.asymmetric,
         }
-        self.model = ActorCritic(net_config)
-        self.model.to(self.device)
+        self.explorer = ActorCritic(ppo_net_config)
+        self.explorer.to(self.device)
+        # ---- Discriminator ----
+        self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
+        self.proprio_dim = self.env.num_obs
+        self.num_classes = self.env.num_objects
+        disc_net_config = {
+            'proprio_dim': self.proprio_dim,
+            'proprio_hist_len': self.proprio_hist_len,
+            'units': self.disc_net_config.mlp.units,
+            'num_classes': self.num_classes,
+        }
+        self.discriminator = Discriminator(disc_net_config)
+        self.discriminator.to(self.device)
+        self.discriminator_epochs = self.train_config['discriminator_epochs']
+        # ---- Normalization ----
         self.obs_mean_std = RunningMeanStd(self.obs_shape).to(self.device) # observation running mean
-        self.state_mean_std = RunningMeanStd((self.state_dim,)).to(self.device) # state running mean
+        self.state_mean_std = RunningMeanStd((self.state_dim,)).to(self.device) # state running mean for asymmetric critic
         self.value_mean_std = RunningMeanStd((1,)).to(self.device)
+        self.hist_mean_std = RunningMeanStd((self.proprio_hist_len, self.proprio_dim)).to(self.device)
+        # ---- Labels ----
+        self.labels = self.env.object_labels.clone().unsqueeze(-1)
         # ---- Output Dir ----
         # allows us to specify a folder where all experiments will reside
-        self.output_dir = output_dif
+        self.output_dir = output_dir
         self.nn_dir = os.path.join(self.output_dir, 'nn')
         self.tb_dif = os.path.join(self.output_dir, 'tb')
         os.makedirs(self.nn_dir, exist_ok=True)
         os.makedirs(self.tb_dif, exist_ok=True)
         # ---- Optim ----
-        self.last_lr = float(self.ppo_config['learning_rate'])
-        self.weight_decay = self.ppo_config.get('weight_decay', 0.0)
-        self.actor_optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
-        self.critic_optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        self.last_lr = float(self.train_config['learning_rate'])
+        self.weight_decay = self.train_config.get('weight_decay', 0.0)
+        self.actor_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        self.critic_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        self.disc_optimizer = torch.optim.Adam(self.discriminator.parameters(), self.last_lr, weight_decay=self.weight_decay)
         # ---- PPO Train Param ----
-        self.e_clip = self.ppo_config['e_clip']
-        self.clip_value = self.ppo_config['clip_value']
-        self.entropy_coef = self.ppo_config['entropy_coef']
-        self.bounds_loss_coef = self.ppo_config['bounds_loss_coef']
-        self.gamma = self.ppo_config['gamma']
-        self.tau = self.ppo_config['tau']
-        self.truncate_grads = self.ppo_config['truncate_grads']
-        self.grad_norm = self.ppo_config['grad_norm']
-        self.value_bootstrap = self.ppo_config['value_bootstrap']
-        self.normalize_advantage = self.ppo_config['normalize_advantage']
-        self.normalize_input = self.ppo_config['normalize_input']
-        self.normalize_value = self.ppo_config['normalize_value']
+        self.e_clip = self.train_config['e_clip']
+        self.clip_value = self.train_config['clip_value']
+        self.entropy_coef = self.train_config['entropy_coef']
+        self.bounds_loss_coef = self.train_config['bounds_loss_coef']
+        self.gamma = self.train_config['gamma']
+        self.tau = self.train_config['tau']
+        self.truncate_grads = self.train_config['truncate_grads']
+        self.grad_norm = self.train_config['grad_norm']
+        self.value_bootstrap = self.train_config['value_bootstrap']
+        self.normalize_advantage = self.train_config['normalize_advantage']
+        self.normalize_input = self.train_config['normalize_input']
+        self.normalize_value = self.train_config['normalize_value']
         # ---- PPO Collect Param ----
-        self.horizon_length = self.ppo_config['horizon_length']
+        self.horizon_length = self.train_config['horizon_length']
         self.batch_size = self.horizon_length * self.num_actors
-        self.minibatch_size = self.ppo_config['minibatch_size']
-        self.actor_mini_epochs = self.ppo_config['actor_mini_epochs']
-        self.critic_mini_epochs = self.ppo_config['critic_mini_epochs']
+        self.minibatch_size = self.train_config['minibatch_size']
+        self.actor_mini_epochs = self.train_config['actor_mini_epochs']
+        self.critic_mini_epochs = self.train_config['critic_mini_epochs']
         assert self.batch_size % self.minibatch_size == 0 or full_config.test
         # ---- scheduler ----
-        self.kl_threshold = self.ppo_config['kl_threshold']
+        self.kl_threshold = self.train_config['kl_threshold']
         self.scheduler = AdaptiveScheduler(self.kl_threshold)
         # ---- Snapshot
-        self.save_freq = self.ppo_config['save_frequency']
-        self.save_best_after = self.ppo_config['save_best_after']
+        self.save_freq = self.train_config['save_frequency']
+        self.save_best_after = self.train_config['save_best_after']
         # ---- Tensorboard Logger ----
         self.extra_info = {}
         writer = SummaryWriter(self.tb_dif)
         self.writer = writer
 
-        self.episode_rewards = AverageScalarMeter(100)
-        self.episode_lengths = AverageScalarMeter(100)
-        self.num_success = AverageScalarMeter(100)
-        self.num_episodes = AverageScalarMeter(100)
+        self.episode_rewards = AverageScalarMeter(1000)
+        self.episode_lengths = AverageScalarMeter(1000)
+        self.num_success = AverageScalarMeter(1000)
+        self.num_episodes = AverageScalarMeter(1000)
 
         self.obs = None
         self.epoch_num = 0
         self.storage = ExperienceBuffer(
             self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.obs_shape[0],
-            self.state_dim, self.actions_num, self.device,
+            self.state_dim, self.actions_num, self.proprio_hist_len, self.device,
         )
 
         batch_size = self.num_actors
@@ -109,20 +129,21 @@ class PPO(object):
         self.current_lengths = torch.zeros(batch_size, dtype=torch.float32, device=self.device)
         self.dones = torch.ones((batch_size,), dtype=torch.uint8, device=self.device)
         self.agent_steps = 0
-        self.max_agent_steps = self.ppo_config['max_agent_steps']
+        self.max_agent_steps = self.train_config['max_agent_steps']
         self.best_rewards = -10000
         # ---- Timing
         self.data_collect_time = 0
         self.rl_train_time = 0
         self.all_time = 0
 
-    def write_stats(self, a_losses, c_losses, b_losses, entropies, kls):
+    def write_stats(self, a_losses, c_losses, b_losses, d_losses, entropies, kls):
         self.writer.add_scalar('performance/RLTrainFPS', self.agent_steps / self.rl_train_time, self.agent_steps)
         self.writer.add_scalar('performance/EnvStepFPS', self.agent_steps / self.data_collect_time, self.agent_steps)
 
         self.writer.add_scalar('losses/actor_loss', torch.mean(torch.stack(a_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/bounds_loss', torch.mean(torch.stack(b_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/critic_loss', torch.mean(torch.stack(c_losses)).item(), self.agent_steps)
+        self.writer.add_scalar('losses/disc_loss', torch.mean(torch.stack(d_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/entropy', torch.mean(torch.stack(entropies)).item(), self.agent_steps)
 
         self.writer.add_scalar('info/last_lr', self.last_lr, self.agent_steps)
@@ -133,30 +154,39 @@ class PPO(object):
             self.writer.add_scalar(f'{k}', v, self.agent_steps)
 
     def set_eval(self):
-        self.model.eval()
+        self.explorer.eval()
+        self.discriminator.eval()
         if self.normalize_input:
             self.obs_mean_std.eval()
             self.state_mean_std.eval()
+            self.hist_mean_std.eval()
         if self.normalize_value:
             self.value_mean_std.eval()
 
     def set_train(self):
-        self.model.train()
+        self.explorer.train()
+        self.discriminator.train()
         if self.normalize_input:
             self.obs_mean_std.train()
             self.state_mean_std.train()
+            self.hist_mean_std.train()
         if self.normalize_value:
             self.value_mean_std.train()
 
     def model_act(self, obs_dict):
+        """ Produces action from explorer and prediction from discriminator """
         processed_obs = self.obs_mean_std(obs_dict['obs'])
         processed_state = self.state_mean_std(obs_dict['state'])
+        processed_hist = self.hist_mean_std(obs_dict['proprio_hist'])
         input_dict = {
             'obs': processed_obs,
             'state': processed_state,
         }
-        res_dict = self.model.act(input_dict)
+        # forward pass through explorer
+        res_dict = self.explorer.act(input_dict)
         res_dict['values'] = self.value_mean_std(res_dict['values'], True)
+        # forward pass through discriminator
+        res_dict['disc_preds'] = self.discriminator(processed_hist)
         return res_dict
 
     def train(self):
@@ -167,7 +197,7 @@ class PPO(object):
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
-            a_losses, c_losses, b_losses, entropies, kls = self.train_epoch()
+            a_losses, c_losses, b_losses, d_losses, entropies, kls = self.train_epoch()
             self.storage.data_dict = None
 
             all_fps = self.agent_steps / (time.time() - _t)
@@ -180,7 +210,7 @@ class PPO(object):
                           f'Current Best: {self.best_rewards:.2f}'
             print(info_string)
 
-            self.write_stats(a_losses, c_losses, b_losses, entropies, kls)
+            self.write_stats(a_losses, c_losses, b_losses, d_losses, entropies, kls)
 
             mean_rewards = self.episode_rewards.get_mean()
             mean_lengths = self.episode_lengths.get_mean()
@@ -189,11 +219,10 @@ class PPO(object):
             checkpoint_name = f'ep_{self.epoch_num}_step_{int(self.agent_steps // 1e6):04}M_reward_{mean_rewards:.2f}'
 
             # update success rate if environment has returned such data
-            if self.num_success.current_size > 0:
-                running_mean_success = self.num_success.get_mean()
-                running_mean_term = self.num_episodes.get_mean()
-                mean_success_rate = running_mean_success / running_mean_term
-                self.writer.add_scalar('success_rate/step', mean_success_rate, self.agent_steps)
+            running_mean_success = self.num_success.get_mean()
+            running_mean_term = self.num_episodes.get_mean()
+            mean_success_rate = running_mean_success / running_mean_term if running_mean_term > 0 else 0.0
+            self.writer.add_scalar('success_rate/step', mean_success_rate, self.agent_steps)
 
             if self.save_freq > 0:
                 if self.epoch_num % self.save_freq == 0:
@@ -209,7 +238,8 @@ class PPO(object):
 
     def save(self, name):
         weights = {
-            'model': self.model.state_dict(),
+            'explorer': self.explorer.state_dict(),
+            'discriminator': self.discriminator.state_dict(),
         }
         if self.obs_mean_std:
             weights['obs_mean_std'] = self.obs_mean_std.state_dict()
@@ -217,33 +247,46 @@ class PPO(object):
             weights['state_mean_std'] = self.state_mean_std.state_dict()
         if self.value_mean_std:
             weights['value_mean_std'] = self.value_mean_std.state_dict()
+        if self.hist_mean_std:
+            weights['hist_mean_std'] = self.hist_mean_std.state_dict()
         torch.save(weights, f'{name}.pth')
 
     def restore_train(self, fn):
         if not fn:
             return
         checkpoint = torch.load(fn)
-        self.model.load_state_dict(checkpoint['model'])
+        self.explorer.load_state_dict(checkpoint['explorer'])
+        self.discriminator.load_state_dict(checkpoint['discriminator'])
         self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
         self.state_mean_std.load_state_dict(checkpoint['state_mean_std'])
+        self.value_mean_std.load_state_dict(checkpoint['value_mean_std'])
+        self.hist_mean_std.load_state_dict(checkpoint['hist_mean_std'])
 
     def restore_test(self, fn):
         checkpoint = torch.load(fn)
-        self.model.load_state_dict(checkpoint['model'])
+        self.explorer.load_state_dict(checkpoint['explorer'])
+        self.discriminator.load_state_dict(checkpoint['discriminator'])
         if self.normalize_input:
             self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
             self.state_mean_std.load_state_dict(checkpoint['state_mean_std'])
+            self.hist_mean_std.load_state_dict(checkpoint['hist_mean_std'])
 
     def test(self):
         self.set_eval()
         obs_dict = self.env.reset()
         while True:
+            # forward pass through explorer
             input_dict = {
                 'obs': self.obs_mean_std(obs_dict['obs']),
-                'state': self.state_mean_std(obs_dict['state']),
+                'state': self.state_mean_std(obs_dict['state'])
             }
-            mu, _ = self.model.act_inference(input_dict)
+            mu, _ = self.explorer.act_inference(input_dict)
             mu = torch.clamp(mu, -1.0, 1.0)
+            # update environment with discriminator prediction
+            hist = self.hist_mean_std(obs_dict['proprio_hist'])
+            discriminator_output = self.discriminator(hist)
+            self.env.update_discriminator_output(discriminator_output)
+            # do env step
             obs_dict, r, done, info = self.env.step(mu)
 
     def train_critic(self):
@@ -252,7 +295,7 @@ class PPO(object):
         for _ in range(0, self.critic_mini_epochs):
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states = self.storage[i]
+                    returns, actions, obs, states, _, _ = self.storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -261,7 +304,7 @@ class PPO(object):
                     'state': states,
                 }
                 # forward pass
-                res_dict = self.model(batch_dict)
+                res_dict = self.explorer(batch_dict)
                 values = res_dict['values']
                 # compute critic loss
                 value_pred_clipped = value_preds + (values - value_preds).clamp(-self.e_clip, self.e_clip)
@@ -272,7 +315,7 @@ class PPO(object):
                 self.critic_optimizer.zero_grad()
                 c_loss.backward()
                 if self.truncate_grads:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                    torch.nn.utils.clip_grad_norm_(self.explorer.parameters(), self.grad_norm)
                 self.critic_optimizer.step()
                 c_losses.append(c_loss)
         return c_losses
@@ -285,7 +328,7 @@ class PPO(object):
             ep_kls = []
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states = self.storage[i]
+                    returns, actions, obs, states, _, _ = self.storage[i]
 
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
@@ -294,7 +337,7 @@ class PPO(object):
                     'obs': obs,
                     'state': states,
                 }
-                res_dict = self.model(batch_dict)
+                res_dict = self.explorer(batch_dict)
                 action_log_probs = res_dict['prev_neglogp']
                 values = res_dict['values']
                 entropy = res_dict['entropy']
@@ -321,7 +364,7 @@ class PPO(object):
                 self.actor_optimizer.zero_grad()
                 loss.backward()
                 if self.truncate_grads:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                    torch.nn.utils.clip_grad_norm_(self.explorer.parameters(), self.grad_norm)
                 self.actor_optimizer.step()
 
                 with torch.no_grad():
@@ -343,6 +386,26 @@ class PPO(object):
             kls.append(av_kls)
         return a_losses, b_losses, entropies, kls
         
+    def train_discriminator(self):
+        d_losses = []
+        for _ in range(self.discriminator_epochs):
+            for i in range(len(self.storage)):
+                _, _, _, _, _, _, _, _, _, proprio_hist, labels = self.storage[i]
+                proprio_hist = self.hist_mean_std(proprio_hist)
+                # forward pass
+                disc_preds = self.discriminator(proprio_hist).to(self.device)
+                # compute discriminator loss
+                labels = labels.squeeze(-1).type(torch.LongTensor).to(self.device)
+                d_loss = torch.nn.functional.nll_loss(disc_preds, labels)
+                # update discriminator
+                self.disc_optimizer.zero_grad()
+                d_loss.backward()
+                if self.truncate_grads:
+                    torch.nn.utils.clip_grad_norm_(self.discriminator.parameters(), self.grad_norm)
+                self.disc_optimizer.step()
+                d_losses.append(d_loss)
+        return d_losses
+
     def train_epoch(self):
         # collect minibatch data
         _t = time.time()
@@ -357,16 +420,23 @@ class PPO(object):
         c_losses = self.train_critic()
         # train the actor
         a_losses, b_losses, entropies, kls = self.train_actor()
+        # train the discriminator
+        d_losses = self.train_discriminator()
 
         self.rl_train_time += (time.time() - _t)
-        return a_losses, c_losses, b_losses, entropies, kls
+        return a_losses, c_losses, b_losses, d_losses, entropies, kls
 
     def play_steps(self):
         for n in range(self.horizon_length):
             res_dict = self.model_act(self.obs)
+            # update environment with discriminator prediction
+            discriminator_output = res_dict['disc_preds']
+            self.env.update_discriminator_output(discriminator_output)
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])
+            self.storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
+            self.storage.update_data('object_labels', n, self.labels) # storing this allows us to vary batchsize without trouble
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:
                 self.storage.update_data(k, n, res_dict[k])
             # do env step
@@ -385,12 +455,12 @@ class PPO(object):
             done_indices = self.dones.nonzero(as_tuple=False)
             self.episode_rewards.update(self.current_rewards[done_indices])
             self.episode_lengths.update(self.current_lengths[done_indices])
-            # if success in info, then update success rate
-            if 'success' in infos:
-                num_success = infos['success']
-                self.num_success.update(num_success)
-                num_terminations = self.dones
-                self.num_episodes.update(num_terminations)
+            # update prediction success rate
+            success = self.env.get_disc_correct()
+            self.num_success.update(success)
+            num_terminations = self.dones
+            self.num_episodes.update(num_terminations)
+
             assert isinstance(infos, dict), 'Info Should be a Dict'
             self.extra_info = {}
             for k, v in infos.items():
