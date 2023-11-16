@@ -50,6 +50,8 @@ class HANDEM(IHMBase):
         # Reward
         self.disc_pred_reward = self.cfg["env"]["reward"]["disc_pred_reward"]
         self.disc_loss_reward = self.cfg["env"]["reward"]["disc_loss_reward"]
+        self.ftip_obj_dist_rew = self.cfg["env"]["reward"]["ftip_obj_dist_rew"]
+        self.object_disp_rew = self.cfg["env"]["reward"]["object_disp_rew"]
 
     def update_discriminator_output(self, output):
         self.discriminator_log_softmax = output.clone().detach()
@@ -107,8 +109,14 @@ class HANDEM(IHMBase):
         # discriminator loss reward
         loss = self.compute_disc_loss()
         disc_loss_reward = -1 * self.disc_loss_reward * loss.unsqueeze(1)
+        # ftip-object distance reward
+        total_ftip_obj_disp = self.compute_ftip_obj_disp()
+        ftip_obj_dist_rew = -1 * self.ftip_obj_dist_rew * total_ftip_obj_disp.unsqueeze(1)
+        # object displacement from default
+        obj_disp = torch.linalg.norm(self.object_pos.clone() - self.default_object_pos.clone(), dim=1)
+        obj_disp_rew = -1 * self.object_disp_rew * obj_disp.unsqueeze(1)
         # total reward
-        reward = disc_pred_reward + disc_loss_reward
+        reward = disc_pred_reward + disc_loss_reward + ftip_obj_dist_rew
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
 

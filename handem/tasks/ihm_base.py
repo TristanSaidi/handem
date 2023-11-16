@@ -807,6 +807,15 @@ class IHMBase(VecTask):
         contact_viz_vecs = [torch.nan_to_num(contact_viz_vec) for contact_viz_vec in contact_viz_vecs]
         return contact_pos_cuda, contact_viz_vecs
 
+    def compute_ftip_obj_disp(self):
+        object_pos = self.object_pos.clone().unsqueeze(1) # (num_envs, 1, 3)
+        ftip_pos = torch.stack(self.ftip_pos).transpose(0, 1) # (num_envs, num_ftips, 3)
+        # broadcast object position
+        object_pos = object_pos.repeat(1, 5, 1)
+        # want average disp for each env --> (num_envs, 1)
+        ftip_obj_disp = torch.linalg.norm(ftip_pos - object_pos, dim=-1) ** 2
+        total_disp = torch.sum(ftip_obj_disp, dim=1)
+        return total_disp
 
     def random_actions(self) -> torch.Tensor:
         """Returns a buffer with random actions drawn from normal distribution

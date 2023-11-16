@@ -5,7 +5,7 @@ name: HANDEM
 
 env:
   object_dataset: '3DPrintedShapes'
-  objectOverride: 1
+  objectOverride: 
   episodeLength: 300
   use_saved_grasps: False
   rand_object_reset: True
@@ -25,5 +25,10 @@ env:
     disc_pred_reward: 100.0
     # log likelihood reward
     disc_loss_reward: 0.1
+    # heuristic terms
+    ftip_obj_dist_rew: 0.1 # encourage contact
+    object_disp_rew: 0.1 # encourage object to stay in place
+
+
 
 
