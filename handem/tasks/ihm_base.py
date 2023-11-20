@@ -23,6 +23,7 @@ from handem.utils.misc import sample_random_quat
 from handem.utils.torch_utils import to_torch
 import pickle
 from datetime import datetime
+import warnings
 
 class IHMBase(VecTask):
     """This is a base class for all in-hand manipulation tasks such as sampling grasps and learning
@@ -105,6 +106,9 @@ class IHMBase(VecTask):
         self.object_com = list(self.cfg["env"]["object_params"]["com"])
         self.object_friction = self.cfg["env"]["object_params"]["friction"]
         self.object_scale = self.cfg["env"]["object_params"]["scale"]
+        if self.object_scale != 1.0:
+            cprint(f"Warning: Scaling objects by {self.object_scale}", "red", attrs=["bold"])
+
 
     def _setup_hand_params(self):
         # actuator parameters
