@@ -52,6 +52,7 @@ class HANDEM(IHMBase):
         self.disc_loss_reward = self.cfg["env"]["reward"]["disc_loss_reward"]
         self.ftip_obj_dist_rew = self.cfg["env"]["reward"]["ftip_obj_dist_rew"]
         self.object_disp_rew = self.cfg["env"]["reward"]["object_disp_rew"]
+        self.contact_loc_pen = self.cfg["env"]["reward"]["contact_loc_pen"]
 
     def update_discriminator_output(self, output):
         self.discriminator_log_softmax = output.clone().detach()
@@ -115,8 +116,10 @@ class HANDEM(IHMBase):
         # object displacement from default
         obj_disp = torch.linalg.norm(self.object_pos.clone() - self.default_object_pos.clone(), dim=1)
         obj_disp_rew = -1 * self.object_disp_rew * obj_disp.unsqueeze(1)
+        # contact location penalty
+        contact_loc_pen = -1 * self.contact_loc_pen * self.contact_location_constraint().float().unsqueeze(1)
         # total reward
-        reward = disc_pred_reward + disc_loss_reward + ftip_obj_dist_rew
+        reward = disc_pred_reward + disc_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
 

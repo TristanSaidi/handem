@@ -821,6 +821,27 @@ class IHMBase(VecTask):
         total_disp = torch.sum(ftip_obj_disp, dim=1)
         return total_disp
 
+    def contact_location_constraint(self):
+        """ Contacts should be made on the front of fingertips """
+        contact_invalid = torch.zeros_like(self.reset_buf)
+        for i, ftip_contact_force in enumerate(self.ftip_contact_force):
+            force_magnitude = torch.linalg.norm(ftip_contact_force, dim=1)
+            ftip_in_contact = force_magnitude > 0
+            ftip_contact_normal = torch.nan_to_num(ftip_contact_force / force_magnitude.unsqueeze(-1))
+            # fetch ftip axis
+            ftip_orientation = self.ftip_orientation[i]
+            oracle_x = torch.tensor([1, 0, 0], dtype=torch.float, device=self.device).repeat(self.num_envs, 1)
+            ftip_x = quat_apply(ftip_orientation, oracle_x)
+            # compute dot product between ftip axis and contact force
+            dot_product = torch.sum(ftip_x * ftip_contact_normal, dim=1)
+            # if dot product is positive (+ threshold), contact is invalid
+            contact_invalid = torch.where(
+                torch.logical_and(dot_product > 0.2, ftip_in_contact),
+                torch.ones_like(self.reset_buf),
+                contact_invalid,
+            )
+        return contact_invalid.bool()
+
     def random_actions(self) -> torch.Tensor:
         """Returns a buffer with random actions drawn from normal distribution
 
