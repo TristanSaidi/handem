@@ -55,7 +55,7 @@ class HANDEM(IHMBase):
         self.contact_loc_pen = self.cfg["env"]["reward"]["contact_loc_pen"]
 
     def update_discriminator_output(self, output):
-        self.discriminator_log_softmax = output.clone().detach()
+        self.discriminator_log_softmax = output.clone().detach().to(self.device)
 
     def get_disc_correct(self):
         "return whether last discriminator prediction was correct"
