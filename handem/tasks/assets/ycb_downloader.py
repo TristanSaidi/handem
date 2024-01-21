@@ -25,7 +25,9 @@ objects_to_download = ["035_power_drill",
                        # "043_phillips_screwdriver",
                        "044_flat_screwdriver",
                        "048_hammer",
-                       "050_medium_clamp"
+                       "049_small_clamp",
+                       "050_medium_clamp",
+                       "052_extra_large_clamp",
                     ]
 
 # You can edit this list to only download certain kinds of files.
@@ -37,7 +39,7 @@ objects_to_download = ["035_power_drill",
 # 'google_512k' contains google meshes with 512k vertices.
 # See the website for more details.
 #files_to_download = ["berkeley_rgbd", "berkeley_rgb_highres", "berkeley_processed", "google_16k", "google_64k", "google_512k"]
-files_to_download = ["berkeley_processed", "berkeley_rgbd"]
+files_to_download = ["berkeley_processed"]
 
 # Extract all files from the downloaded .tgz, and remove .tgz files.
 # If false, will just download all .tgz files to output_directory
@@ -115,3 +117,19 @@ if __name__ == "__main__":
                 download_file(url, filename)
                 if extract:
                     extract_tgz(filename, output_directory)
+    # find obj files
+    obj_files = []
+    obj_dir = './object_datasets/ycb'
+    for root, dirs, files in os.walk(obj_dir):
+        if 'poisson' in root:
+            continue
+        for file in files:
+            if file.endswith(".obj"):
+                obj_files.append(os.path.join(root, file))
+    # move obj files to individual directories
+    os.makedirs('./object_datasets/ycb/meshes', exist_ok=True)
+    f = open('./object_datasets/ycb/meshes/obj_files.txt', 'w')
+    for i, obj_file in enumerate(obj_files):
+        os.rename(obj_file, f'./object_datasets/ycb/meshes/{i}.obj')
+        f.write(f'Object id #{i}: {obj_file}\n')
+    f.close()

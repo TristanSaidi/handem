@@ -4,7 +4,7 @@ defaults:
 name: HANDEM
 
 env:
-  object_dataset: '3DPrintedShapes'
+  object_dataset: 'ycb'
   objectOverride: 
   episodeLength: 300
   use_saved_grasps: False
