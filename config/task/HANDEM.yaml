@@ -12,7 +12,7 @@ env:
 
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "ftip_contact_force"]
-  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque", "ftip_contact_pos"]
+  feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
   reset:
     confidence_threshold: 0.98
