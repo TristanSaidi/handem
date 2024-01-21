@@ -23,6 +23,7 @@ from handem.utils.misc import sample_random_quat
 from handem.utils.torch_utils import to_torch
 import pickle
 from datetime import datetime
+import warnings
 
 class IHMBase(VecTask):
     """This is a base class for all in-hand manipulation tasks such as sampling grasps and learning
@@ -77,7 +78,9 @@ class IHMBase(VecTask):
         self.contactBoolForceThreshold = cfg["env"]["contactBoolForceThreshold"]
         self.action_scale = to_torch(cfg["env"]["actionScale"], device=self.device)
         self.rand_object_reset = cfg["env"].get("rand_object_reset", False)
-
+        if "ftip_contact_pos" in self.cfg["env"]["feedbackObs"]:
+            assert 'cpu' in self.device, "ftip_contact_pos is not supported on GPU"
+    
         self.create_tensor_views()
         self.gym.simulate(self.sim)
         self._refresh_tensors()
@@ -105,6 +108,9 @@ class IHMBase(VecTask):
         self.object_com = list(self.cfg["env"]["object_params"]["com"])
         self.object_friction = self.cfg["env"]["object_params"]["friction"]
         self.object_scale = self.cfg["env"]["object_params"]["scale"]
+        if self.object_scale != 1.0:
+            cprint(f"Warning: Scaling objects by {self.object_scale}", "red", attrs=["bold"])
+
 
     def _setup_hand_params(self):
         # actuator parameters
@@ -523,7 +529,7 @@ class IHMBase(VecTask):
 
     def compute_observation(self):
 
-        self.ftip_contact_pos, contact_vectors = self.compute_ftip_contact_pos_vec()
+        self.ftip_contact_pos = self.compute_ftip_contact_pos()
         self.contact_bool_tensor = self.compute_contact_bool()
         self.ncon = torch.sum(self.contact_bool_tensor, dim=1)
 
@@ -633,15 +639,15 @@ class IHMBase(VecTask):
         super().reset()
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
         if self.states_buf is not None:
-            self.obs_dict["state"] = self.states_buf.clone()
+            self.obs_dict["state"] = self.states_buf.clone().to(self.rl_device)
         return self.obs_dict
 
     def step(self, actions):
         super().step(actions)
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
         if self.states_buf is not None:
-            self.obs_dict["state"] = self.states_buf.clone()
-        return self.obs_dict, self.rew_buf, self.reset_buf, self.extras
+            self.obs_dict["state"] = self.states_buf.clone().to(self.rl_device)
+        return self.obs_dict, self.rew_buf.to(self.rl_device), self.reset_buf.to(self.rl_device), self.extras
 
     def compute_reward(self, actions=None):
         pass
@@ -784,7 +790,7 @@ class IHMBase(VecTask):
         self.proprio_hist_buf[env_idx] = 0
         self.at_reset_buf[env_idx] = 1
 
-    def compute_contact_bool(self, distal_finger_force_threshold=0):
+    def compute_contact_bool(self):
         # TODO: Wherever this is used, it should have two modes. One for the computing the accurate "state" and
         # another for computing the "obs"
         force_scalar = [torch.linalg.norm(force, dim=1) for force in self.ftip_contact_force]
@@ -792,20 +798,68 @@ class IHMBase(VecTask):
         contact_bool_tensor = torch.transpose(torch.stack(contact), 0, 1)
         return contact_bool_tensor
 
-    def compute_ftip_contact_pos_vec(self):
+    def compute_ftip_contact_pos(self):
+        if 'cpu' in self.device:
+            contact_pos = self.compute_ftip_contact_pos_cpu()
+        else:
+            contact_pos = self.compute_ftip_contact_pos_cuda()
+        return contact_pos
+    
+    def compute_ftip_contact_pos_cuda(self):
         """Compute approximate ftip contact position from ftip positions and net contact force"""
         ftip_radius = 0.0185
         # store contact positions
         contact_pos_cuda = []
         # also create exaggerated flipped contact vector for viz
-        contact_viz_vecs = []
         for ftip_pos, contact_force in zip(self.ftip_pos, self.ftip_contact_force):
             approx_contact_force_normal = contact_force / torch.linalg.norm(contact_force, dim=1, keepdim=True)
             contact_pos_cuda.append(ftip_pos + approx_contact_force_normal * ftip_radius)
-            contact_viz_vecs.append(ftip_pos + approx_contact_force_normal * 0.05)
         contact_pos_cuda = [torch.nan_to_num(contact_position) for contact_position in contact_pos_cuda]
-        contact_viz_vecs = [torch.nan_to_num(contact_viz_vec) for contact_viz_vec in contact_viz_vecs]
-        return contact_pos_cuda, contact_viz_vecs
+        return contact_pos_cuda
+    
+    def compute_ftip_contact_pos_cpu(self):
+        """Grab ftip contact position from sim and convert to global frame"""
+        contact_pos_cpu = [[] for _ in range(5)]
+        # iterate through envs 
+        for env_id, env in enumerate(self.envs):
+            contacts = self.gym.get_env_rigid_contacts(env)
+            # get fingertip and object indices
+            fingertip_indices = [self.gym.find_actor_rigid_body_index(env, self.actor_handles["robot"][env_id], f"finger{i + 1}_distal", gymapi.DOMAIN_ACTOR) for i in range(5)]
+            contact_pos = [[] for _ in range(5)]
+            for contact in contacts:
+                magnitude = contact["lambda"]
+                if magnitude < 1e-3:
+                    continue
+                contact_indices = [contact["body0"], contact["body1"]]
+                for i, ftip_idx in enumerate(fingertip_indices):
+                    if ftip_idx in contact_indices:
+                        order_idx = contact_indices.index(ftip_idx)
+                        # local coordinates of contact location
+                        contact_location_local = contact[f"localPos{order_idx}"]
+                        # create fingertip transform
+                        ftip_transform = self.gym.get_actor_rigid_body_states(env, self.actor_handles["robot"][env_id], gymapi.STATE_POS)[ftip_idx]
+                        pos = ftip_transform["pose"]["p"]
+                        rot = ftip_transform["pose"]["r"]
+                        ftip_transform = gymapi.Transform(pos, rot)
+                        # invert fingertip transform
+                        ftip_inv_transform = ftip_transform.inverse()
+                        contact_location_global = ftip_inv_transform.transform_point(contact_location_local)
+                        contact_location_global = torch.tensor(
+                            [contact_location_global.x, contact_location_global.y, contact_location_global.z], 
+                            dtype=torch.float, 
+                            device=self.device
+                        )
+                        contact_pos[i].append(contact_location_global)
+            
+            for finger, contact_list in enumerate(contact_pos):
+                if len(contact_list) == 0:
+                    contact_tensor = torch.tensor([0, 0, 0], dtype=torch.float, device=self.device)
+                else:
+                    contact_tensor = torch.stack(contact_list).mean(dim=0)
+                contact_pos_cpu[finger].append(contact_tensor)
+
+        contact_pos_cpu = [torch.stack(contact_position).to(self.device) for contact_position in contact_pos_cpu]
+        return contact_pos_cpu
 
     def compute_ftip_obj_disp(self):
         object_pos = self.object_pos.clone().unsqueeze(1) # (num_envs, 1, 3)
@@ -816,6 +870,27 @@ class IHMBase(VecTask):
         ftip_obj_disp = torch.linalg.norm(ftip_pos - object_pos, dim=-1) ** 2
         total_disp = torch.sum(ftip_obj_disp, dim=1)
         return total_disp
+
+    def contact_location_constraint(self):
+        """ Contacts should be made on the front of fingertips """
+        contact_invalid = torch.zeros_like(self.reset_buf)
+        for i, ftip_contact_force in enumerate(self.ftip_contact_force):
+            force_magnitude = torch.linalg.norm(ftip_contact_force, dim=1)
+            ftip_in_contact = force_magnitude > 0
+            ftip_contact_normal = torch.nan_to_num(ftip_contact_force / force_magnitude.unsqueeze(-1))
+            # fetch ftip axis
+            ftip_orientation = self.ftip_orientation[i]
+            oracle_x = torch.tensor([1, 0, 0], dtype=torch.float, device=self.device).repeat(self.num_envs, 1)
+            ftip_x = quat_apply(ftip_orientation, oracle_x)
+            # compute dot product between ftip axis and contact force
+            dot_product = torch.sum(ftip_x * ftip_contact_normal, dim=1)
+            # if dot product is positive (+ threshold), contact is invalid
+            contact_invalid = torch.where(
+                torch.logical_and(dot_product > 0.2, ftip_in_contact),
+                torch.ones_like(self.reset_buf),
+                contact_invalid,
+            )
+        return contact_invalid.bool()
 
     def random_actions(self) -> torch.Tensor:
         """Returns a buffer with random actions drawn from normal distribution
