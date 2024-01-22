@@ -18,7 +18,7 @@ from handem.tasks.base.vec_task import VecTask
 
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
-from handem.utils.misc import sample_random_quat
+from handem.utils.misc import sample_random_quat, euler_to_quat
 
 from handem.utils.torch_utils import to_torch
 import pickle
@@ -714,7 +714,12 @@ class IHMBase(VecTask):
         y = self.default_object_pos[1] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if y is None else y
         z = self.default_object_pos[2] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if z is None else z
         pos = torch.stack([x, y, z], dim=1).to(self.device)
-        quat = sample_random_quat(n, device=self.device)
+        # sample random rotation about z axis
+        r, p, y = \
+                torch.zeros(n, device=self.device), \
+                torch.zeros(n, device=self.device), \
+                torch.FloatTensor(n).uniform_(0, 2*np.pi).to(self.device)
+        quat = euler_to_quat(r, p, y)
         return pos, quat
 
     def reset_idx(self, env_idx):
