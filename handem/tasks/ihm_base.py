@@ -684,21 +684,7 @@ class IHMBase(VecTask):
 
     def sample_grasp(self, env_idx):
         """Sample new grasp pose"""
-        if self.saved_grasp_states is None:
-            return self.sample_default_grasp(env_idx)
-        target_hand_joint_pos = torch.zeros((len(env_idx), self.hand_dof_pos.size(-1)), device=self.device)
-        hand_joint_pos = torch.zeros((len(env_idx), self.hand_dof_pos.size(-1)), device=self.device)
-        object_pos = torch.zeros((len(env_idx), 3), device=self.device)
-        object_rot = torch.zeros((len(env_idx), 4), device=self.device)
-        object_vel = torch.zeros((len(env_idx), 6), device=self.device)
-
-        grasp_idx = torch.randint(len(self.saved_grasp_states), (n,))
-        hand_joint_pos[idx_so, :]= self.saved_grasp_states[grasp_idx][:, :15]
-        target_hand_joint_pos[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 15:30]
-        object_pos[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 30:33]
-        object_rot[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 33:37]
-        object_vel[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 37:]
-        return hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel
+        return self.sample_default_grasp(env_idx)
 
     def sample_default_grasp(self, env_idx):
         hand_joint_pos = to_torch(self.default_hand_joint_pos, device=self.device).repeat(len(env_idx), 1)
