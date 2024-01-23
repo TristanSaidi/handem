@@ -4,7 +4,7 @@ defaults:
 name: HANDEM
 
 env:
-  object_dataset: 'Tandem2D'
+  object_dataset: 'ycb'
   objectOverride: 
   episodeLength: 300
   use_saved_grasps: False
@@ -26,7 +26,7 @@ env:
     # log likelihood reward
     disc_loss_reward: 0.1
     # heuristic terms
-    ftip_obj_dist_rew: 0.5 # encourage contact
+    ftip_obj_dist_rew: 0.0 # encourage contact
     object_disp_rew: 0.5 # encourage object to stay in place
     contact_loc_pen: 0.01 # penalize contact with back of fingertips
 
