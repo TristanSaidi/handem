@@ -279,12 +279,12 @@ class IHMBase(VecTask):
         # object asset options
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = False
-        asset_options.fix_base_link = False
+        asset_options.fix_base_link = self.cfg["env"]["fix_object"]
         asset_options.collapse_fixed_joints = True
         asset_options.disable_gravity = False
         asset_options.angular_damping = 0.01
         asset_options.vhacd_enabled = self.cfg["env"].get("enableObjConvexDecomp", False)
-        asset_options.vhacd_params.resolution = 400000
+        asset_options.vhacd_params.resolution = 10000
 
         if self.physics_engine == gymapi.SIM_PHYSX:
             asset_options.use_physx_armature = False

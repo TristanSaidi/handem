@@ -6,7 +6,7 @@ env:
   # default positions
   default_hand_joint_pos: [0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0]
   default_ur5e_joint_pos: [-1.57, -1.57, -1.57, -1.57, 1.57, 0]
-  default_object_pos: [0.125, 0.5, 0.1625]
+  default_object_pos: [0.125, 0.5, 0.1825]
   default_object_euler: [0, 0, 3.14]
   
   propHistoryLen: 10
