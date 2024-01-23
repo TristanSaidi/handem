@@ -67,12 +67,12 @@ class GPT2Discriminator(nn.Module):
 
         if attention_mask is None:
             # attention mask for GPT: 1 if can be attended to, 0 if not
-            attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long)
+            attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long).to(proprio_hist.device)
     
         positions = torch.arange(0, seq_length, dtype=torch.long, device=proprio_hist.device)
 
         # embed each modality with a different head
-        proprio_hist_embeddings = self.embed_obs(proprio_hist_embeddings)
+        proprio_hist_embeddings = self.embed_proprio_hist(proprio_hist)
         position_embeddings = self.embed_position(positions)
 
         # time embeddings are treated similar to positional embeddings
@@ -86,7 +86,8 @@ class GPT2Discriminator(nn.Module):
             attention_mask=attention_mask,
         )
         x = transformer_outputs['last_hidden_state']
-
+        # we only care about the most recent prediction
+        x = x[:, -1, :]
         # predict the class
         class_logits = self.predict_class(x)
         log_softmax = F.log_softmax(class_logits, dim=-1)

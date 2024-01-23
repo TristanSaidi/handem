@@ -44,4 +44,4 @@ handem:
     transformer:
       n_layer: 3
       n_head: 1
-      hidden_size: 128
+      hidden_size: 32

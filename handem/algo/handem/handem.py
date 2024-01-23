@@ -76,6 +76,8 @@ class HANDEM(object):
                 proprio_hist_len,
                 n_layer=n_layer,
                 n_head=n_head,
+                n_positions=self.proprio_hist_len,
+                n_ctx=self.proprio_hist_len
             )
             num_params = self.discriminator.get_num_params()
             print(f'Number of discriminator parameters: {num_params}')
