@@ -289,6 +289,19 @@ class HANDEM(object):
             # do env step
             obs_dict, r, done, info = self.env.step(mu)
 
+            # record success rate
+            success = self.env.get_disc_correct()
+            self.num_success.update(success)
+            num_terminations = done
+            self.num_episodes.update(num_terminations)
+
+            # print success rate
+            running_mean_success = self.num_success.get_mean()
+            running_mean_term = self.num_episodes.get_mean()
+            mean_success_rate = running_mean_success / running_mean_term if running_mean_term > 0 else 0.0
+            print(f'Success rate: {mean_success_rate:.2f}\n')
+            print()
+
     def train_critic(self):
         "Train critic network on data from rollout"
         c_losses = []
@@ -453,8 +466,8 @@ class HANDEM(object):
             self.current_rewards += rewards
             self.current_lengths += 1
             done_indices = self.dones.nonzero(as_tuple=False)
-            self.episode_rewards.update(self.current_rewards[done_indices])
-            self.episode_lengths.update(self.current_lengths[done_indices])
+            self.episode_rewards.update(self.current_rewards)
+            self.episode_lengths.update(self.current_lengths)
             # update prediction success rate
             success = self.env.get_disc_correct()
             self.num_success.update(success)
