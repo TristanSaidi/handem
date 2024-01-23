@@ -111,9 +111,9 @@ class HANDEM(object):
         writer = SummaryWriter(self.tb_dif)
         self.writer = writer
 
-        self.episode_rewards = AverageScalarMeter(100)
-        self.episode_lengths = AverageScalarMeter(100)
-        self.num_success = AverageScalarMeter(100)
+        self.episode_rewards = AverageScalarMeter(1000)
+        self.episode_lengths = AverageScalarMeter(1000)
+        self.num_success = AverageScalarMeter(1000)
 
         self.obs = None
         self.epoch_num = 0
@@ -285,19 +285,6 @@ class HANDEM(object):
             self.env.update_discriminator_output(discriminator_output)
             # do env step
             obs_dict, r, done, info = self.env.step(mu)
-
-            # record success rate
-            success = self.env.get_disc_correct()
-            self.num_success.update(success)
-            num_terminations = done
-            self.num_episodes.update(num_terminations)
-
-            # print success rate
-            running_mean_success = self.num_success.get_mean()
-            running_mean_term = self.num_episodes.get_mean()
-            mean_success_rate = running_mean_success / running_mean_term if running_mean_term > 0 else 0.0
-            print(f'Success rate: {mean_success_rate:.2f}\n')
-            print()
 
     def train_critic(self):
         "Train critic network on data from rollout"
