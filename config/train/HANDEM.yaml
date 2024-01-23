@@ -38,6 +38,10 @@ handem:
       actor_units: [512, 512, 256, 128]
       critic_units: [512, 512, 256, 128]
   discriminator_network:
-    arch: 'mlp' # 'mlp' or 'transformer'
+    arch: 'transformer' # 'mlp' or 'transformer'
     mlp:
       units: [256, 128]
+    transformer:
+      n_layer: 3
+      n_head: 1
+      hidden_size: 128

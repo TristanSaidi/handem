@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import MLPDiscriminator
+from handem.algo.models.models import MLPDiscriminator, GPT2Discriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 
@@ -60,8 +60,26 @@ class HANDEM(object):
                 'num_classes': self.num_classes,
             }
             self.discriminator = MLPDiscriminator(disc_net_config)
+            num_params = self.discriminator.get_num_params()
+            print(f'Number of discriminator parameters: {num_params}')
         else:
-            raise NotImplementedError
+            obs_dim = self.obs_shape[0]
+            hidden_size = self.disc_net_config.transformer.hidden_size
+            num_classes = self.num_classes
+            proprio_hist_len = self.proprio_hist_len
+            n_layer = self.disc_net_config.transformer.n_layer
+            n_head = self.disc_net_config.transformer.n_head
+            self.discriminator = GPT2Discriminator(
+                obs_dim,
+                hidden_size,
+                num_classes,
+                proprio_hist_len,
+                n_layer=n_layer,
+                n_head=n_head,
+            )
+            num_params = self.discriminator.get_num_params()
+            print(f'Number of discriminator parameters: {num_params}')
+
         self.discriminator.to(self.device)
         self.discriminator_epochs = self.train_config['discriminator_epochs']
         # ---- Normalization ----
