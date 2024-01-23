@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import Discriminator
+from handem.algo.models.models import MLPDiscriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 
@@ -51,13 +51,17 @@ class HANDEM(object):
         self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
         self.proprio_dim = self.env.num_obs
         self.num_classes = self.env.num_objects
-        disc_net_config = {
-            'proprio_dim': self.proprio_dim,
-            'proprio_hist_len': self.proprio_hist_len,
-            'units': self.disc_net_config.mlp.units,
-            'num_classes': self.num_classes,
-        }
-        self.discriminator = Discriminator(disc_net_config)
+        self.disc_arch = self.disc_net_config.arch
+        if self.disc_arch == 'mlp':
+            disc_net_config = {
+                'proprio_dim': self.proprio_dim,
+                'proprio_hist_len': self.proprio_hist_len,
+                'units': self.disc_net_config.mlp.units,
+                'num_classes': self.num_classes,
+            }
+            self.discriminator = MLPDiscriminator(disc_net_config)
+        else:
+            raise NotImplementedError
         self.discriminator.to(self.device)
         self.discriminator_epochs = self.train_config['discriminator_epochs']
         # ---- Normalization ----
@@ -114,7 +118,6 @@ class HANDEM(object):
         self.episode_rewards = AverageScalarMeter(1000)
         self.episode_lengths = AverageScalarMeter(1000)
         self.num_success = AverageScalarMeter(1000)
-        self.num_episodes = AverageScalarMeter(1000)
 
         self.obs = None
         self.epoch_num = 0
@@ -220,9 +223,7 @@ class HANDEM(object):
 
             # update success rate if environment has returned such data
             running_mean_success = self.num_success.get_mean()
-            running_mean_term = self.num_episodes.get_mean()
-            mean_success_rate = running_mean_success / running_mean_term if running_mean_term > 0 else 0.0
-            self.writer.add_scalar('success_rate/step', mean_success_rate, self.agent_steps)
+            self.writer.add_scalar('success/step', running_mean_success, self.agent_steps)
 
             if self.save_freq > 0:
                 if self.epoch_num % self.save_freq == 0:
@@ -453,14 +454,11 @@ class HANDEM(object):
             self.current_rewards += rewards
             self.current_lengths += 1
             done_indices = self.dones.nonzero(as_tuple=False)
-            self.episode_rewards.update(self.current_rewards[done_indices])
-            self.episode_lengths.update(self.current_lengths[done_indices])
+            self.episode_rewards.update(self.current_rewards)
+            self.episode_lengths.update(self.current_lengths)
             # update prediction success rate
             success = self.env.get_disc_correct()
             self.num_success.update(success)
-            num_terminations = self.dones
-            self.num_episodes.update(num_terminations)
-
             assert isinstance(infos, dict), 'Info Should be a Dict'
             self.extra_info = {}
             for k, v in infos.items():

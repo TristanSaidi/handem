@@ -4,11 +4,13 @@ defaults:
 name: HANDEM
 
 env:
-  object_dataset: 'Tandem2D'
+  object_dataset: 'ycb'
   objectOverride: 
   episodeLength: 300
   use_saved_grasps: False
   rand_object_reset: True
+
+  fix_object: True
 
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "ftip_contact_force"]
@@ -28,7 +30,7 @@ env:
     # heuristic terms
     ftip_obj_dist_rew: 0.5 # encourage contact
     object_disp_rew: 0.5 # encourage object to stay in place
-    contact_loc_pen: 0.01 # penalize contact with back of fingertips
+    contact_loc_pen: 0.0 # penalize contact with back of fingertips
 
 
 

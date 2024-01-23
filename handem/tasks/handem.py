@@ -37,6 +37,7 @@ class HANDEM(IHMBase):
         self._setup_rotation_axis(cfg["env"]["rotationAxis"])
         self._setup_reward_config()
         self._setup_reset_config()
+        
         # current discriminator output
         self.discriminator_log_softmax = torch.ones((self.num_envs, self.num_objects), device=self.device)
         self.discriminator_log_softmax = torch.log(self.discriminator_log_softmax / self.num_objects)
@@ -106,6 +107,7 @@ class HANDEM(IHMBase):
     def compute_reward(self):
         # correct predictions
         self.correct, self.confidence = self.discriminator_predict()
+        self.confident = (self.confidence > self.confidence_threshold).int()
         disc_pred_reward = self.disc_pred_reward * self.correct
         # discriminator loss reward
         loss = self.compute_disc_loss()
@@ -128,8 +130,7 @@ class HANDEM(IHMBase):
         # task specific reset conditions
         reset = self.reset_buf[:]
         # if confident
-        confident = (self.confidence > self.confidence_threshold).int().squeeze(1)
-        reset = torch.where(confident == 1, torch.ones_like(self.reset_buf), reset)
+        reset = torch.where(self.confident.squeeze(1) == 1, torch.ones_like(self.reset_buf), reset)
         # if end of episode
         reset = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), reset)
         self.reset_buf[:] = reset

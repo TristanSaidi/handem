@@ -3,25 +3,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-PROPRIO_DIM = 50  # Must be changed if proprioceptive feedback changes
+from handem.algo.models.architectures.mlp import MLP
 
-
-class MLP(nn.Module):
-    def __init__(self, units, input_size):
-        super(MLP, self).__init__()
-        layers = []
-        for output_size in units:
-            layers.append(nn.Linear(input_size, output_size))
-            layers.append(nn.ELU())
-            input_size = output_size
-        self.mlp = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.mlp(x)
-
-class Discriminator(nn.Module):
+class MLPDiscriminator(nn.Module):
     def __init__(self, kwargs):
-        super(Discriminator, self).__init__()
+        super(MLPDiscriminator, self).__init__()
         proprio_dim = kwargs.pop("proprio_dim")
         proprio_hist_len = kwargs.pop("proprio_hist_len")
         units = kwargs.pop("units")

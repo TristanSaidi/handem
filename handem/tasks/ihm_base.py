@@ -18,7 +18,7 @@ from handem.tasks.base.vec_task import VecTask
 
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
-from handem.utils.misc import sample_random_quat
+from handem.utils.misc import sample_random_quat, euler_to_quat
 
 from handem.utils.torch_utils import to_torch
 import pickle
@@ -279,12 +279,12 @@ class IHMBase(VecTask):
         # object asset options
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = False
-        asset_options.fix_base_link = False
+        asset_options.fix_base_link = self.cfg["env"]["fix_object"]
         asset_options.collapse_fixed_joints = True
         asset_options.disable_gravity = False
         asset_options.angular_damping = 0.01
         asset_options.vhacd_enabled = self.cfg["env"].get("enableObjConvexDecomp", False)
-        asset_options.vhacd_params.resolution = 400000
+        asset_options.vhacd_params.resolution = 10000
 
         if self.physics_engine == gymapi.SIM_PHYSX:
             asset_options.use_physx_armature = False
@@ -684,21 +684,7 @@ class IHMBase(VecTask):
 
     def sample_grasp(self, env_idx):
         """Sample new grasp pose"""
-        if self.saved_grasp_states is None:
-            return self.sample_default_grasp(env_idx)
-        target_hand_joint_pos = torch.zeros((len(env_idx), self.hand_dof_pos.size(-1)), device=self.device)
-        hand_joint_pos = torch.zeros((len(env_idx), self.hand_dof_pos.size(-1)), device=self.device)
-        object_pos = torch.zeros((len(env_idx), 3), device=self.device)
-        object_rot = torch.zeros((len(env_idx), 4), device=self.device)
-        object_vel = torch.zeros((len(env_idx), 6), device=self.device)
-
-        grasp_idx = torch.randint(len(self.saved_grasp_states), (n,))
-        hand_joint_pos[idx_so, :]= self.saved_grasp_states[grasp_idx][:, :15]
-        target_hand_joint_pos[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 15:30]
-        object_pos[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 30:33]
-        object_rot[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 33:37]
-        object_vel[idx_so, :] = self.saved_grasp_states[grasp_idx][:, 37:]
-        return hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel
+        return self.sample_default_grasp(env_idx)
 
     def sample_default_grasp(self, env_idx):
         hand_joint_pos = to_torch(self.default_hand_joint_pos, device=self.device).repeat(len(env_idx), 1)
@@ -714,7 +700,12 @@ class IHMBase(VecTask):
         y = self.default_object_pos[1] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if y is None else y
         z = self.default_object_pos[2] + torch.FloatTensor(n).uniform_(-range, range).to(self.device) if z is None else z
         pos = torch.stack([x, y, z], dim=1).to(self.device)
-        quat = sample_random_quat(n, device=self.device)
+        # sample random rotation about z axis
+        r, p, y = \
+                torch.zeros(n, device=self.device), \
+                torch.zeros(n, device=self.device), \
+                torch.FloatTensor(n).uniform_(0, 2*np.pi).to(self.device)
+        quat = euler_to_quat(r, p, y)
         return pos, quat
 
     def reset_idx(self, env_idx):

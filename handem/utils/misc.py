@@ -66,6 +66,14 @@ def compute_quat_angle(quat1, quat2):
     magnitude, axis = quat_to_angle_axis(quat_diff)
     return torch.abs(magnitude).unsqueeze(1)
 
+def euler_to_quat(r, p, y):
+    q_x = torch.sin(r / 2) * torch.cos(p / 2) * torch.cos(y / 2) - torch.cos(r / 2) * torch.sin(p / 2) * torch.sin(y / 2)
+    q_y = torch.cos(r / 2) * torch.sin(p / 2) * torch.cos(y / 2) + torch.sin(r / 2) * torch.cos(p / 2) * torch.sin(y / 2)
+    q_z = torch.cos(r / 2) * torch.cos(p / 2) * torch.sin(y / 2) - torch.sin(r / 2) * torch.sin(p / 2) * torch.cos(y / 2)
+    q_w = torch.cos(r / 2) * torch.cos(p / 2) * torch.cos(y / 2) + torch.sin(r / 2) * torch.sin(p / 2) * torch.sin(y / 2)
+    quat = torch.stack([q_x, q_y, q_z, q_w], dim=1)
+    return quat
+
 def tprint(*args):
     """Temporarily prints things on the screen"""
     print("\r", end="")
