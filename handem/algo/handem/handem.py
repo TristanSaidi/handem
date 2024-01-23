@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import Discriminator
+from handem.algo.models.models import MLPDiscriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 
@@ -51,13 +51,17 @@ class HANDEM(object):
         self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
         self.proprio_dim = self.env.num_obs
         self.num_classes = self.env.num_objects
-        disc_net_config = {
-            'proprio_dim': self.proprio_dim,
-            'proprio_hist_len': self.proprio_hist_len,
-            'units': self.disc_net_config.mlp.units,
-            'num_classes': self.num_classes,
-        }
-        self.discriminator = Discriminator(disc_net_config)
+        self.disc_arch = self.disc_net_config.arch
+        if self.disc_arch == 'mlp':
+            disc_net_config = {
+                'proprio_dim': self.proprio_dim,
+                'proprio_hist_len': self.proprio_hist_len,
+                'units': self.disc_net_config.mlp.units,
+                'num_classes': self.num_classes,
+            }
+            self.discriminator = MLPDiscriminator(disc_net_config)
+        else:
+            raise NotImplementedError
         self.discriminator.to(self.device)
         self.discriminator_epochs = self.train_config['discriminator_epochs']
         # ---- Normalization ----
