@@ -106,7 +106,9 @@ class HANDEM(IHMBase):
     def compute_reward(self):
         # correct predictions
         self.correct, self.confidence = self.discriminator_predict()
-        disc_pred_reward = self.disc_pred_reward * self.correct
+        self.confident = (self.confidence > self.confidence_threshold).int()
+        # disc_pred_reward = self.disc_pred_reward * self.correct
+        disc_pred_reward = self.disc_pred_reward * self.confident
         # discriminator loss reward
         loss = self.compute_disc_loss()
         disc_loss_reward = -1 * self.disc_loss_reward * loss.unsqueeze(1)
@@ -128,8 +130,7 @@ class HANDEM(IHMBase):
         # task specific reset conditions
         reset = self.reset_buf[:]
         # if confident
-        confident = (self.confidence > self.confidence_threshold).int().squeeze(1)
-        reset = torch.where(confident == 1, torch.ones_like(self.reset_buf), reset)
+        reset = torch.where(self.confident.squeeze(1) == 1, torch.ones_like(self.reset_buf), reset)
         # if end of episode
         reset = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), reset)
         self.reset_buf[:] = reset
