@@ -44,6 +44,8 @@ class IHMBase(VecTask):
         self._setup_states_obs_actions_dims()
         self.up_axis = "z"
         # load parameters
+        self.randomize = cfg["env"]["randomize"]
+        self.randomization_params = cfg["env"]["randomization_params"]
         self._setup_object_params()
         self._setup_hand_params()
         self._setup_ur5e_params()
@@ -154,6 +156,8 @@ class IHMBase(VecTask):
         self.up_axis_idx = 2 if self.up_axis == "z" else 1  # index of up axis: Y=1, Z=2
         super().create_sim()
         self._create_ground_plane()
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
 
     def _create_envs(self, num_envs, spacing, num_per_row):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
@@ -709,6 +713,8 @@ class IHMBase(VecTask):
         return pos, quat
 
     def reset_idx(self, env_idx):
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
         hand_joint_pos, target_hand_joint_pos, object_pos, object_rot, object_vel = self.sample_grasp(env_idx)
         self.hand_dof_pos[env_idx, :] = 0.0
         self.hand_dof_vel[env_idx, :] = 0.0

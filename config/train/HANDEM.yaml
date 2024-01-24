@@ -32,13 +32,13 @@ handem:
   # snapshot setting
   save_best_after: 0
   save_frequency: 10
-  max_agent_steps: 200000000
+  max_agent_steps: 50000000
   ppo_network:
     mlp:
       actor_units: [512, 512, 256, 128]
       critic_units: [512, 512, 256, 128]
   discriminator_network:
-    arch: 'transformer' # 'mlp' or 'transformer'
+    arch: 'mlp' # 'mlp' or 'transformer'
     mlp:
       units: [256, 128]
     transformer:
