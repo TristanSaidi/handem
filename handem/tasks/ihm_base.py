@@ -44,6 +44,8 @@ class IHMBase(VecTask):
         self._setup_states_obs_actions_dims()
         self.up_axis = "z"
         # load parameters
+        self.randomize = cfg["env"]["randomize"]
+        self.randomization_params = cfg["env"]["randomization_params"]
         self._setup_object_params()
         self._setup_hand_params()
         self._setup_ur5e_params()
@@ -562,6 +564,10 @@ class IHMBase(VecTask):
         prev_obs_buf = self.obs_buf_lag_history[:, 1:].clone()
 
         cur_obs_buf = torch.cat(list(obs.values()), dim=-1)
+        if self.randomize and "observation" in self.randomization_params:
+            sigma = self.randomization_params["observation"]["sigma"]
+            noise = torch.randn_like(cur_obs_buf) * sigma
+            cur_obs_buf += noise
         cur_state_buf = torch.cat(list(states.values()), dim=-1)
         self.obs_buf_lag_history[:] = torch.cat([prev_obs_buf, cur_obs_buf.unsqueeze(1)], dim=1)
         # refill the initialized buffers
@@ -785,6 +791,8 @@ class IHMBase(VecTask):
         # TODO: Wherever this is used, it should have two modes. One for the computing the accurate "state" and
         # another for computing the "obs"
         force_scalar = [torch.linalg.norm(force, dim=1) for force in self.ftip_contact_force]
+        if self.randomize and "tactile" in self.randomization_params:
+            force_scalar = [force + torch.rand_like(force) * self.randomization_params["tactile"] for force in force_scalar]
         contact = [(force > self.contactBoolForceThreshold).long() for force in force_scalar]
         contact_bool_tensor = torch.transpose(torch.stack(contact), 0, 1)
         return contact_bool_tensor

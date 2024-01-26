@@ -28,10 +28,14 @@ env:
     # log likelihood reward
     disc_loss_reward: 0.1
     # heuristic terms
-    ftip_obj_dist_rew: 0.5 # encourage contact
-    object_disp_rew: 0.5 # encourage object to stay in place
-    contact_loc_pen: 0.0 # penalize contact with back of fingertips
+    ftip_obj_dist_rew: 0.0 # encourage contact
+    object_disp_rew: 0.0 # encourage object to stay in place
+    contact_loc_pen: 0.1 # penalize contact with back of fingertips
 
-
+  randomize: False
+  randomization_params:
+    observation:
+      sigma: 0.01
+      tactile: 0.5 # uniform noise in range [0.0, tactile]
 
 
