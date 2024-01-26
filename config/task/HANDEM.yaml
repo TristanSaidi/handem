@@ -13,7 +13,7 @@ env:
   fix_object: True
 
   # observation and state
-  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "ftip_contact_force"]
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
   reset:
@@ -31,8 +31,9 @@ env:
     ftip_obj_dist_rew: 0.0 # encourage contact
     object_disp_rew: 0.0 # encourage object to stay in place
     contact_loc_pen: 0.1 # penalize contact with back of fingertips
+    hand_pose_pen: 0.0 # penalize hand joint disp from "close-hand"
 
-  randomize: False
+  randomize: True
   randomization_params:
     observation:
       sigma: 0.01
