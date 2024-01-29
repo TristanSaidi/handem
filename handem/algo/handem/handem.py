@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import MLPDiscriminator
+from handem.algo.models.models import MLPDiscriminator, GPT2Discriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 
@@ -60,8 +60,28 @@ class HANDEM(object):
                 'num_classes': self.num_classes,
             }
             self.discriminator = MLPDiscriminator(disc_net_config)
+            num_params = self.discriminator.get_num_params()
+            print(f'Number of discriminator parameters: {num_params}')
         else:
-            raise NotImplementedError
+            obs_dim = self.obs_shape[0]
+            hidden_size = self.disc_net_config.transformer.hidden_size
+            num_classes = self.num_classes
+            proprio_hist_len = self.proprio_hist_len
+            n_layer = self.disc_net_config.transformer.n_layer
+            n_head = self.disc_net_config.transformer.n_head
+            self.discriminator = GPT2Discriminator(
+                obs_dim,
+                hidden_size,
+                num_classes,
+                proprio_hist_len,
+                n_layer=n_layer,
+                n_head=n_head,
+                n_positions=self.proprio_hist_len,
+                n_ctx=self.proprio_hist_len
+            )
+            num_params = self.discriminator.get_num_params()
+            print(f'Number of discriminator parameters: {num_params}')
+
         self.discriminator.to(self.device)
         self.discriminator_epochs = self.train_config['discriminator_epochs']
         # ---- Normalization ----
@@ -133,6 +153,7 @@ class HANDEM(object):
         self.dones = torch.ones((batch_size,), dtype=torch.uint8, device=self.device)
         self.agent_steps = 0
         self.max_agent_steps = self.train_config['max_agent_steps']
+        self.early_stopping_patience = self.train_config['early_stopping_patience']
         self.best_rewards = -10000
         # ---- Timing
         self.data_collect_time = 0
@@ -197,10 +218,32 @@ class HANDEM(object):
         _last_t = time.time()
         self.obs = self.env.reset()
         self.agent_steps = self.batch_size
+        d_loss_prev = torch.inf
+        d_loss_min = torch.inf
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
             a_losses, c_losses, b_losses, d_losses, entropies, kls = self.train_epoch()
+            d_losses_avg = sum(d_losses)/len(d_losses)
+            
+            # save checkpoint if discriminator loss is at a minimum
+            if d_losses_avg < d_loss_min:
+                print(f'save current best disc loss: {d_losses_avg:.2f}')
+                d_loss_min = d_losses_avg
+                self.save(os.path.join(self.nn_dir, 'best_disc_loss'))
+
+            # early stopping
+            if d_losses_avg > d_loss_prev:
+                self.early_stopping_counter += 1
+            else:
+                self.early_stopping_counter = 0
+            d_loss_prev = d_losses_avg
+            if self.early_stopping_counter >= self.early_stopping_patience:
+                self.save(os.path.join(self.nn_dir, checkpoint_name))
+                self.save(os.path.join(self.nn_dir, 'last'))
+                print('early stopping')
+                exit()
+            
             self.storage.data_dict = None
 
             all_fps = self.agent_steps / (time.time() - _t)
@@ -233,7 +276,7 @@ class HANDEM(object):
             if mean_rewards > self.best_rewards and self.epoch_num >= self.save_best_after:
                 print(f'save current best reward: {mean_rewards:.2f}')
                 self.best_rewards = mean_rewards
-                self.save(os.path.join(self.nn_dir, 'best'))
+                self.save(os.path.join(self.nn_dir, 'best_reward'))
 
         print('max steps achieved')
 

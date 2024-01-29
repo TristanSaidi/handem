@@ -54,6 +54,7 @@ class HANDEM(IHMBase):
         self.ftip_obj_dist_rew = self.cfg["env"]["reward"]["ftip_obj_dist_rew"]
         self.object_disp_rew = self.cfg["env"]["reward"]["object_disp_rew"]
         self.contact_loc_pen = self.cfg["env"]["reward"]["contact_loc_pen"]
+        self.hand_pose_pen = self.cfg["env"]["reward"]["hand_pose_pen"]
 
     def update_discriminator_output(self, output):
         self.discriminator_log_softmax = output.clone().detach().to(self.device)
@@ -120,8 +121,12 @@ class HANDEM(IHMBase):
         obj_disp_rew = -1 * self.object_disp_rew * obj_disp.unsqueeze(1)
         # contact location penalty
         contact_loc_pen = -1 * self.contact_loc_pen * self.contact_location_constraint().float().unsqueeze(1)
+        # hand pose penalty
+        close_hand = torch.tensor([0.0, 0.25, 0.45]*5).to(self.device)
+        hand_pose_diff = torch.linalg.norm(self.hand_dof_pos.clone() - close_hand, dim=1)
+        hand_pose_pen = -1 * self.hand_pose_pen * hand_pose_diff.unsqueeze(1)
         # total reward
-        reward = disc_pred_reward + disc_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen
+        reward = disc_pred_reward + disc_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen + hand_pose_pen
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
 

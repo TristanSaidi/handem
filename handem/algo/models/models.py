@@ -2,8 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import transformers
 from handem.algo.models.architectures.mlp import MLP
+from handem.algo.models.architectures.transformer import GPT2Model
 
 class MLPDiscriminator(nn.Module):
     def __init__(self, kwargs):
@@ -21,6 +22,80 @@ class MLPDiscriminator(nn.Module):
         x = self.mlp(x)
         x = F.log_softmax(x, dim=-1)
         return x
+    
+    def get_num_params(self):
+        n_params = sum(p.numel() for p in self.parameters())
+        return n_params
+
+class GPT2Discriminator(nn.Module):
+
+    def __init__(
+                self,
+                obs_dim,
+                hidden_size,
+                num_classes,
+                proprio_hist_len,
+                **kwargs
+        ):
+            super(GPT2Discriminator, self).__init__()
+
+
+            self.obs_dim = obs_dim
+
+            self.hidden_size = hidden_size
+            config = transformers.GPT2Config(
+                vocab_size=1,  # doesn't matter -- we don't use the vocab
+                n_embd=hidden_size,
+                **kwargs
+            )
+
+            # note: the only difference between this GPT2Model and the default Huggingface version
+            # is that the positional embeddings are removed (since we'll add those ourselves)
+            self.transformer = GPT2Model(config)
+
+            self.embed_position = nn.Embedding(proprio_hist_len, hidden_size)
+            self.embed_proprio_hist = torch.nn.Linear(self.obs_dim, hidden_size)
+
+            self.embed_ln = nn.LayerNorm(hidden_size)
+
+            # note: we don't predict states or returns for the paper
+            self.predict_class = nn.Linear(hidden_size, num_classes)
+
+    def forward(self, proprio_hist, attention_mask=None):
+
+        batch_size, seq_length = proprio_hist.shape[0], proprio_hist.shape[1]
+
+        if attention_mask is None:
+            # attention mask for GPT: 1 if can be attended to, 0 if not
+            attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long).to(proprio_hist.device)
+    
+        positions = torch.arange(0, seq_length, dtype=torch.long, device=proprio_hist.device)
+
+        # embed each modality with a different head
+        proprio_hist_embeddings = self.embed_proprio_hist(proprio_hist)
+        position_embeddings = self.embed_position(positions)
+
+        # time embeddings are treated similar to positional embeddings
+        proprio_hist_embeddings = proprio_hist_embeddings + position_embeddings
+
+        proprio_hist_embeddings = self.embed_ln(proprio_hist_embeddings)
+
+        # we feed in the input embeddings (not word indices as in NLP) to the model
+        transformer_outputs = self.transformer(
+            inputs_embeds=proprio_hist_embeddings,
+            attention_mask=attention_mask,
+        )
+        x = transformer_outputs['last_hidden_state']
+        # we only care about the most recent prediction
+        x = x[:, -1, :]
+        # predict the class
+        class_logits = self.predict_class(x)
+        log_softmax = F.log_softmax(class_logits, dim=-1)
+        return log_softmax
+
+    def get_num_params(self):
+        n_params = sum(p.numel() for p in self.parameters())
+        return n_params
 
 class ActorCritic(nn.Module):
     def __init__(self, kwargs):
