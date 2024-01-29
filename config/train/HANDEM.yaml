@@ -32,7 +32,7 @@ handem:
   # snapshot setting
   save_best_after: 0
   save_frequency: 50
-  max_agent_steps: 200000000
+  max_agent_steps: 500000000
   early_stopping_patience: 100
   ppo_network:
     mlp:

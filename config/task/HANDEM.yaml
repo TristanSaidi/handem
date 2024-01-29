@@ -4,7 +4,7 @@ defaults:
 name: HANDEM
 
 env:
-  object_dataset: 'ycb'
+  object_dataset: 'Tandem2D'
   objectOverride: 
   episodeLength: 300
   use_saved_grasps: False
@@ -33,7 +33,7 @@ env:
     contact_loc_pen: 0.1 # penalize contact with back of fingertips
     hand_pose_pen: 0.0 # penalize hand joint disp from "close-hand"
 
-  randomize: True
+  randomize: False
   randomization_params:
     observation:
       sigma: 0.01
