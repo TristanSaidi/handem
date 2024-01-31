@@ -252,7 +252,7 @@ class IHMBase(VecTask):
         table_thickness = 0.05
         table_opts = gymapi.AssetOptions()
         table_opts.fix_base_link = True
-        table_asset = self.gym.create_box(self.sim, *[0.5, 0.5, table_thickness], table_opts)
+        table_asset = self.gym.create_box(self.sim, *[1.5, 0.5, table_thickness], table_opts)
 
         # Create table stand asset
         table_stand_pos = [table_pos[0], table_pos[1], table_pos[2]/2 - table_thickness / 4]

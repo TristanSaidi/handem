@@ -10,6 +10,7 @@ from handem.tasks.ihm_base import IHMBase
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
 from time import sleep
 from pytorch3d.loss import chamfer_distance
+from matplotlib import pyplot as plt
 
 class HANDEM_Reconstruct(IHMBase):
     def __init__(
@@ -40,6 +41,10 @@ class HANDEM_Reconstruct(IHMBase):
         self._setup_reset_config()
         
         self.vertex_pred = torch.zeros((self.num_envs, self.num_vertices, 2), device=self.device)
+        self.visualize_enabled = (self.headless==False) and self.num_envs == 1
+        if self.visualize_enabled:
+            self.label_offset = np.array([0.3, 0.0, 0.2])
+            self.pred_offset = np.array([0.4, 0.0, 0.2])
 
     def _setup_rotation_axis(self, axis_idx=2):
         self.rotation_axis = torch.zeros((self.num_envs, 3), device=self.device)
@@ -56,6 +61,7 @@ class HANDEM_Reconstruct(IHMBase):
     def update_regressor_output(self, output):
         output = output.reshape(self.num_envs, self.num_vertices, 2)
         self.vertex_pred = self.vertex_pred + output.clone().detach().to(self.device)
+        
 
     def _setup_reset_config(self):
         self.loss_threshold = self.cfg["env"]["reset"]["loss_threshold"]
@@ -66,12 +72,28 @@ class HANDEM_Reconstruct(IHMBase):
         "return whether last regressor prediction was correct (within threshold)"
         return self.correct.clone().detach()
 
+    def visualize_vertices(self, vertices, offset, color):
+        # labels
+        vertices = np.concatenate((vertices, np.zeros((self.num_envs, self.num_vertices, 1))), axis=-1)
+        # predictions
+        for i in range(self.num_vertices):
+            start_idx = i
+            end_idx = i+1 if i < self.num_vertices-1 else 0
+            vertex = [vertices[0, start_idx] + offset, vertices[0, end_idx] + offset]
+            self.gym.add_lines(self.viewer, self.envs[0], 1, vertex, color)
+
     @torch.no_grad()
     def compute_regressor_loss(self):
         # broadcasting magic
         vertex_pred = self.vertex_pred.clone().detach() # (B, N, 2)
-        # compute chamfer distance
-        loss, _ = chamfer_distance(self.transformed_vertex_labels, vertex_pred, batch_reduction=None)
+        # compute chamfer distance loss
+        chamfer_loss, _ = chamfer_distance(self.transformed_vertex_labels, vertex_pred, batch_reduction=None)
+        # edge loss
+        vertex_offset = torch.cat((vertex_pred[:, 1:, :], vertex_pred[:, 0:1, :]), dim=1)
+        edge_loss = torch.linalg.norm(vertex_offset - vertex_pred, dim=2).mean(dim=1)
+        # total loss
+        loss = chamfer_loss + edge_loss
+
         correct = torch.where(
             loss < self.loss_threshold,
             torch.ones_like(loss),
@@ -80,6 +102,10 @@ class HANDEM_Reconstruct(IHMBase):
         return loss, correct
 
     def compute_reward(self):
+        if self.visualize_enabled:
+            self.gym.clear_lines(self.viewer)
+            self.visualize_vertices(self.transformed_vertex_labels.clone().cpu().numpy(), self.label_offset, color=[0, 1, 0])
+            self.visualize_vertices(self.vertex_pred.clone().cpu().numpy(), self.pred_offset, color=[1, 0, 0])
         # correct predictions
         self.loss, self.correct = self.compute_regressor_loss()
         reg_loss_reward = -1 * self.reg_loss_reward * self.loss.unsqueeze(1)

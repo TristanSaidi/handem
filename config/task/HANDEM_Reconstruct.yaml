@@ -17,7 +17,7 @@ env:
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
   reset:
-    loss_threshold: 0.2
+    loss_threshold: 1e-4
     obj_xyz_lower_lim: [0.0, 0.35, 0.0]
     obj_xyz_upper_lim: [0.3, 0.65, 0.5]
 

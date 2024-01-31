@@ -347,7 +347,10 @@ class HANDEM(object):
     def restore_test(self, fn):
         checkpoint = torch.load(fn)
         self.explorer.load_state_dict(checkpoint['explorer'])
-        self.discriminator.load_state_dict(checkpoint['discriminator'])
+        if 'discriminator' in checkpoint:
+            self.discriminator.load_state_dict(checkpoint['discriminator'])
+        if 'regressor' in checkpoint:
+            self.regressor.load_state_dict(checkpoint['regressor'])
         if self.normalize_input:
             self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
             self.state_mean_std.load_state_dict(checkpoint['state_mean_std'])
@@ -366,8 +369,12 @@ class HANDEM(object):
             mu = torch.clamp(mu, -1.0, 1.0)
             # update environment with discriminator prediction
             hist = self.hist_mean_std(obs_dict['proprio_hist'])
-            discriminator_output = self.discriminator(hist)
-            self.env.update_discriminator_output(discriminator_output)
+            if self.discriminator is not None:
+                discriminator_output = self.discriminator(hist)
+                self.env.update_discriminator_output(discriminator_output)
+            if self.regressor is not None:
+                regressor_output = self.regressor(hist, self.env.vertex_pred)
+                self.env.update_regressor_output(regressor_output)
             # do env step
             obs_dict, r, done, info = self.env.step(mu)
 
@@ -497,8 +504,13 @@ class HANDEM(object):
                 # forward pass
                 reg_preds = self.regressor(proprio_hist, vertex_preds)
                 updated_vertex_preds = vertex_preds + reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
-                # compute regressor loss
-                r_loss, _ = chamfer_distance(vertex_labels, updated_vertex_preds)
+                # compute chamfer loss
+                chamfer_loss, _ = chamfer_distance(vertex_labels, updated_vertex_preds)
+                # edge loss
+                vertex_offset = torch.cat((updated_vertex_preds[:, 1:, :], updated_vertex_preds[:, 0:1, :]), dim=1)
+                edge_loss = torch.linalg.norm(vertex_offset - updated_vertex_preds, dim=2).mean()
+                # total loss
+                r_loss = chamfer_loss + edge_loss
                 # update regressor
                 self.regressor_optimizer.zero_grad()
                 r_loss.backward()
