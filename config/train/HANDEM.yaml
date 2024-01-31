@@ -20,7 +20,6 @@ handem:
   minibatch_size: 32768
   actor_mini_epochs: 5
   critic_mini_epochs: 8
-  discriminator_epochs: 5
   # PPO loss setting
   clip_value: True
   entropy_coef: 0.0
@@ -33,12 +32,12 @@ handem:
   save_best_after: 0
   save_frequency: 50
   max_agent_steps: 500000000
-  early_stopping_patience: 100
   ppo_network:
     mlp:
       actor_units: [512, 512, 256, 128]
       critic_units: [512, 512, 256, 128]
   discriminator_network:
+    discriminator_epochs: 5
     arch: 'mlp' # 'mlp' or 'transformer'
     mlp:
       units: [256, 128]
@@ -46,3 +45,9 @@ handem:
       n_layer: 3
       n_head: 1
       hidden_size: 32
+  reconstruction_network:
+    regressor_epochs: 5
+    mlp:
+      units: [256, 128]
+    n_vertices: 9
+    vertex_dim: 2

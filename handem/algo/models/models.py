@@ -27,6 +27,31 @@ class MLPDiscriminator(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         return n_params
 
+class MLPRegressor(nn.Module):
+    def __init__(self, kwargs):
+        super(MLPRegressor, self).__init__()
+        # observation hist
+        proprio_dim = kwargs.pop("proprio_dim")
+        proprio_hist_len = kwargs.pop("proprio_hist_len")
+        # vertex prediction
+        vertex_dim = kwargs.pop("vertex_dim")
+        n_vertices = kwargs.pop("n_vertices")
+        # input size
+        input_size = proprio_dim * proprio_hist_len + vertex_dim * n_vertices # proprio_hist + previous vertex prediction
+        units = kwargs.pop("units")
+        units.append(n_vertices * vertex_dim)
+        self.mlp = MLP(units, input_size=input_size)
+
+    def forward(self, proprio_hist, vertex_pred):
+        # x: tensor of size (B x proprio_hist_len x proprio_dim)
+        x = torch.cat([proprio_hist.flatten(1), vertex_pred.flatten(1)], dim=1)
+        x = self.mlp(x)
+        return x
+
+    def get_num_params(self):
+        n_params = sum(p.numel() for p in self.parameters())
+        return n_params
+
 class GPT2Discriminator(nn.Module):
 
     def __init__(

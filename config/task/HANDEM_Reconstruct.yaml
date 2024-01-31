@@ -1,7 +1,7 @@
 defaults:
   - IHM.yaml
 
-name: HANDEM
+name: HANDEM_Reconstruct
 
 env:
   object_dataset: 'Tandem2D'
@@ -17,16 +17,13 @@ env:
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
   reset:
-    confidence_threshold: 0.98
+    loss_threshold: 0.2
     obj_xyz_lower_lim: [0.0, 0.35, 0.0]
     obj_xyz_upper_lim: [0.3, 0.65, 0.5]
 
   # reward terms
   reward:
-    # correct discriminator prediction
-    disc_pred_reward: 100.0
-    # log likelihood reward
-    disc_loss_reward: 0.1
+    reg_loss_reward: 0.1
     # heuristic terms
     ftip_obj_dist_rew: 0.0 # encourage contact
     object_disp_rew: 0.0 # encourage object to stay in place

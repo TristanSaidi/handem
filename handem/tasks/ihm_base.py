@@ -18,7 +18,7 @@ from handem.tasks.base.vec_task import VecTask
 
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
-from handem.utils.misc import sample_random_quat, euler_to_quat
+from handem.utils.misc import sample_random_quat, euler_to_quat, compute_2D_vertex_transform
 
 from handem.utils.torch_utils import to_torch
 import pickle
@@ -86,6 +86,8 @@ class IHMBase(VecTask):
         self.create_tensor_views()
         self.gym.simulate(self.sim)
         self._refresh_tensors()
+        self.transformed_vertex_labels = compute_2D_vertex_transform(self.vertex_labels, self.object_pose) # (num_envs, n_vertices, 2)
+
 
     def _setup_states_obs_actions_dims(self):
         dims = {
@@ -309,12 +311,32 @@ class IHMBase(VecTask):
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, asset_options)
             # add to dataset
             self.dataset.append((object_asset, label))
+        # sort dataset by label
+        self.dataset.sort(key=lambda x: x[1])
+
+        # load vertices if appropriate
+        if "Reconstruct" in self.cfg["name"]:
+            vertices_dir = os.path.join('object_datasets', self.object_dataset, 'vertices')
+            vertices_dataset_path = os.path.join(asset_root, vertices_dir)
+            dataset_files = os.listdir(vertices_dataset_path)
+            self.vertices = [None]*len(dataset_files)
+            for file in dataset_files:
+                # extract label from filename
+                label = ''.join(list(filter(lambda x: x.isdigit(), file)))
+                label = int(label)
+                # load vertices
+                vertices_file = os.path.join(vertices_dataset_path, file)
+                vertices = to_torch(np.load(vertices_file), device=self.device)
+                # add to dataset
+                self.vertices[label] = vertices
+            self.vertices = torch.stack(self.vertices)
+            self.num_vertices = self.vertices.shape[1]
         
         self.actor_handles = {"robot": [], "object": [], "table": [], "table_stand": []}
 
         self.envs = []
         self.object_indices = []
-
+        self.vertex_labels = []
         # store object labels for each environment
         self.object_labels = []
 
@@ -343,6 +365,7 @@ class IHMBase(VecTask):
             idx = random.choice(range(len(self.dataset))) if object_override is None else object_override
             label = self.dataset[idx][1]
             self.object_labels.append(label)
+            self.vertex_labels.append(self.vertices[label])
             object_asset = self.dataset[idx][0]
             
             object_actor = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 0)
@@ -390,6 +413,7 @@ class IHMBase(VecTask):
             #### object rigid shape properties ####
 
         self.object_labels = to_torch(self.object_labels, dtype=torch.long, device=self.device)
+        self.vertex_labels = torch.stack(self.vertex_labels)
 
         # Rigid body handles used later to compute object pose and contact forces
         self.rigid_body_handles = {}
@@ -521,6 +545,7 @@ class IHMBase(VecTask):
         self.progress_buf += 1
         self.reset_buf[:] = 0
         self._refresh_tensors()
+        self.transformed_vertex_labels = compute_2D_vertex_transform(self.vertex_labels, self.object_pose) # (num_envs, n_vertices, 2)
         self.compute_reward()
         self.check_reset()
         env_idx = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -644,6 +669,7 @@ class IHMBase(VecTask):
     def reset(self):
         super().reset()
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
+        self.obs_dict["vertex_labels"] = self.transformed_vertex_labels.clone().to(self.rl_device)
         if self.states_buf is not None:
             self.obs_dict["state"] = self.states_buf.clone().to(self.rl_device)
         return self.obs_dict
@@ -651,6 +677,7 @@ class IHMBase(VecTask):
     def step(self, actions):
         super().step(actions)
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
+        self.obs_dict["vertex_labels"] = self.transformed_vertex_labels.clone().to(self.rl_device)
         if self.states_buf is not None:
             self.obs_dict["state"] = self.states_buf.clone().to(self.rl_device)
         return self.obs_dict, self.rew_buf.to(self.rl_device), self.reset_buf.to(self.rl_device), self.extras

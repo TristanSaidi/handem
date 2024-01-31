@@ -9,8 +9,9 @@ from termcolor import cprint
 from handem.tasks.ihm_base import IHMBase
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
 from time import sleep
+from pytorch3d.loss import chamfer_distance
 
-class HANDEM(IHMBase):
+class HANDEM_Reconstruct(IHMBase):
     def __init__(
         self,
         cfg,
@@ -38,10 +39,7 @@ class HANDEM(IHMBase):
         self._setup_reward_config()
         self._setup_reset_config()
         
-        # current discriminator output
-        self.discriminator_log_softmax = torch.ones((self.num_envs, self.num_objects), device=self.device)
-        self.discriminator_log_softmax = torch.log(self.discriminator_log_softmax / self.num_objects)
-        self.confidence = torch.zeros((self.num_envs, 1), device=self.device)
+        self.vertex_pred = torch.zeros((self.num_envs, self.num_vertices, 2), device=self.device)
 
     def _setup_rotation_axis(self, axis_idx=2):
         self.rotation_axis = torch.zeros((self.num_envs, 3), device=self.device)
@@ -49,70 +47,42 @@ class HANDEM(IHMBase):
 
     def _setup_reward_config(self):
         # Reward
-        self.disc_pred_reward = self.cfg["env"]["reward"]["disc_pred_reward"]
-        self.disc_loss_reward = self.cfg["env"]["reward"]["disc_loss_reward"]
+        self.reg_loss_reward = self.cfg["env"]["reward"]["reg_loss_reward"]
         self.ftip_obj_dist_rew = self.cfg["env"]["reward"]["ftip_obj_dist_rew"]
         self.object_disp_rew = self.cfg["env"]["reward"]["object_disp_rew"]
         self.contact_loc_pen = self.cfg["env"]["reward"]["contact_loc_pen"]
         self.hand_pose_pen = self.cfg["env"]["reward"]["hand_pose_pen"]
 
-    def update_discriminator_output(self, output):
-        self.discriminator_log_softmax = output.clone().detach().to(self.device)
-
-    def get_disc_correct(self):
-        "return whether last discriminator prediction was correct"
-        return self.correct.clone().detach()
+    def update_regressor_output(self, output):
+        output = output.reshape(self.num_envs, self.num_vertices, 2)
+        self.vertex_pred = self.vertex_pred + output.clone().detach().to(self.device)
 
     def _setup_reset_config(self):
-        self.confidence_threshold = self.cfg["env"]["reset"]["confidence_threshold"] * torch.ones((self.num_envs, 1), device=self.device)
+        self.loss_threshold = self.cfg["env"]["reset"]["loss_threshold"]
         self.obj_xyz_lower_lim = self.cfg["env"]["reset"]["obj_xyz_lower_lim"]
         self.obj_xyz_upper_lim = self.cfg["env"]["reset"]["obj_xyz_upper_lim"]
 
-    def discriminator_predict(self):
-        # convert discriminator log softmax to predictions
-        disc_softmax = torch.exp(self.discriminator_log_softmax)
-        disc_max_softmax, disc_pred = disc_softmax.max(dim=1)
+    def get_reg_correct(self):
+        "return whether last regressor prediction was correct (within threshold)"
+        return self.correct.clone().detach()
+
+    @torch.no_grad()
+    def compute_regressor_loss(self):
+        # broadcasting magic
+        vertex_pred = self.vertex_pred.clone().detach() # (B, N, 2)
+        # compute chamfer distance
+        loss, _ = chamfer_distance(self.transformed_vertex_labels, vertex_pred, batch_reduction=None)
         correct = torch.where(
-            disc_pred == self.object_labels, 
-            torch.ones_like(disc_pred), 
-            torch.zeros_like(disc_pred)
+            loss < self.loss_threshold,
+            torch.ones_like(loss),
+            torch.zeros_like(loss)
         ).unsqueeze(1)
-
-        ########### print information for inference-time debugging ###########
-        if self.headless == False:
-            color = 'green' if correct[0] else 'red'
-            bold = ["bold"] if disc_max_softmax[0] > self.confidence_threshold[0] else None
-            cprint(f'Discriminator prediction: {disc_pred[0]}, confidence: {disc_max_softmax[0]:.2f}', color, end='\r', attrs=bold)
-            if color=='green' and bold is not None:
-                sleep(3)
-        ########### print information for inference-time debugging ###########
-        
-        disc_max_softmax = disc_max_softmax.unsqueeze(1)
-        # mask out correct predictions with low confidence
-        correct = torch.where(
-            disc_max_softmax > self.confidence_threshold, 
-            correct, 
-            torch.zeros_like(correct)
-        )
-        return correct, disc_max_softmax
-
-    def compute_disc_loss(self):
-        # compute discriminator loss
-        loss = torch.nn.functional.nll_loss(
-            self.discriminator_log_softmax, 
-            self.object_labels,
-            reduction='none'
-        )
-        return loss
+        return loss, correct
 
     def compute_reward(self):
         # correct predictions
-        self.correct, self.confidence = self.discriminator_predict()
-        self.confident = (self.confidence > self.confidence_threshold).int()
-        disc_pred_reward = self.disc_pred_reward * self.correct
-        # discriminator loss reward
-        loss = self.compute_disc_loss()
-        disc_loss_reward = -1 * self.disc_loss_reward * loss.unsqueeze(1)
+        self.loss, self.correct = self.compute_regressor_loss()
+        reg_loss_reward = -1 * self.reg_loss_reward * self.loss.unsqueeze(1)
         # ftip-object distance reward
         total_ftip_obj_disp = self.compute_ftip_obj_disp()
         ftip_obj_dist_rew = -1 * self.ftip_obj_dist_rew * total_ftip_obj_disp.unsqueeze(1)
@@ -126,7 +96,7 @@ class HANDEM(IHMBase):
         hand_pose_diff = torch.linalg.norm(self.hand_dof_pos.clone() - close_hand, dim=1)
         hand_pose_pen = -1 * self.hand_pose_pen * hand_pose_diff.unsqueeze(1)
         # total reward
-        reward = disc_pred_reward + disc_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen + hand_pose_pen
+        reward = reg_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen + hand_pose_pen
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
 
@@ -135,7 +105,7 @@ class HANDEM(IHMBase):
         # task specific reset conditions
         reset = self.reset_buf[:]
         # if confident
-        reset = torch.where(self.confident.squeeze(1) == 1, torch.ones_like(self.reset_buf), reset)
+        reset = torch.where(self.correct.squeeze(1) == 1, torch.ones_like(self.reset_buf), reset)
         # if end of episode
         reset = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), reset)
         self.reset_buf[:] = reset

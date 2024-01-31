@@ -14,16 +14,16 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import MLPDiscriminator, GPT2Discriminator
+from handem.algo.models.models import MLPDiscriminator, MLPRegressor, GPT2Discriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
-
+from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
+from pytorch3d.loss import chamfer_distance
 
 class HANDEM(object):
     def __init__(self, env, output_dir, full_config):
         self.device = full_config['rl_device']
         self.ppo_net_config = full_config.train.handem.ppo_network
-        self.disc_net_config = full_config.train.handem.discriminator_network
         self.train_config = full_config.train.handem
         # ---- build environment ----
         self.env = env
@@ -47,43 +47,64 @@ class HANDEM(object):
         }
         self.explorer = ActorCritic(ppo_net_config)
         self.explorer.to(self.device)
-        # ---- Discriminator ----
+        # ---- Discriminator/Regressor ----
         self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
         self.proprio_dim = self.env.num_obs
-        self.num_classes = self.env.num_objects
-        self.disc_arch = self.disc_net_config.arch
-        if self.disc_arch == 'mlp':
-            disc_net_config = {
+        self.discriminator = None
+        self.regressor = None
+        self.n_vertices = None
+        if full_config["task"]['name'] == 'HANDEM_Reconstruct':
+            self.reconstruction_net_config = full_config.train.handem.reconstruction_network
+            self.n_vertices = self.reconstruction_net_config.n_vertices
+            self.vertex_dim = self.reconstruction_net_config.vertex_dim
+            units = self.reconstruction_net_config.mlp.units
+            regressor_net_config = {
                 'proprio_dim': self.proprio_dim,
                 'proprio_hist_len': self.proprio_hist_len,
-                'units': self.disc_net_config.mlp.units,
-                'num_classes': self.num_classes,
+                'units': units,
+                'vertex_dim': self.vertex_dim,
+                'n_vertices': self.n_vertices,
             }
-            self.discriminator = MLPDiscriminator(disc_net_config)
-            num_params = self.discriminator.get_num_params()
-            print(f'Number of discriminator parameters: {num_params}')
+            self.regressor = MLPRegressor(regressor_net_config)
+            num_params = self.regressor.get_num_params()
+            print(f'Number of regressor parameters: {num_params}')
+            self.regressor_epochs = self.train_config["reconstruction_network"]["regressor_epochs"]
+            self.regressor.to(self.device)
         else:
-            obs_dim = self.obs_shape[0]
-            hidden_size = self.disc_net_config.transformer.hidden_size
-            num_classes = self.num_classes
-            proprio_hist_len = self.proprio_hist_len
-            n_layer = self.disc_net_config.transformer.n_layer
-            n_head = self.disc_net_config.transformer.n_head
-            self.discriminator = GPT2Discriminator(
-                obs_dim,
-                hidden_size,
-                num_classes,
-                proprio_hist_len,
-                n_layer=n_layer,
-                n_head=n_head,
-                n_positions=self.proprio_hist_len,
-                n_ctx=self.proprio_hist_len
-            )
-            num_params = self.discriminator.get_num_params()
-            print(f'Number of discriminator parameters: {num_params}')
-
-        self.discriminator.to(self.device)
-        self.discriminator_epochs = self.train_config['discriminator_epochs']
+            self.disc_net_config = full_config.train.handem.discriminator_network
+            self.num_classes = self.env.num_objects
+            self.disc_arch = self.disc_net_config.arch
+            if self.disc_arch == 'mlp':
+                disc_net_config = {
+                    'proprio_dim': self.proprio_dim,
+                    'proprio_hist_len': self.proprio_hist_len,
+                    'units': self.disc_net_config.mlp.units,
+                    'num_classes': self.num_classes,
+                }
+                self.discriminator = MLPDiscriminator(disc_net_config)
+                num_params = self.discriminator.get_num_params()
+                print(f'Number of discriminator parameters: {num_params}')
+            else:
+                obs_dim = self.obs_shape[0]
+                hidden_size = self.disc_net_config.transformer.hidden_size
+                num_classes = self.num_classes
+                proprio_hist_len = self.proprio_hist_len
+                n_layer = self.disc_net_config.transformer.n_layer
+                n_head = self.disc_net_config.transformer.n_head
+                self.discriminator = GPT2Discriminator(
+                    obs_dim,
+                    hidden_size,
+                    num_classes,
+                    proprio_hist_len,
+                    n_layer=n_layer,
+                    n_head=n_head,
+                    n_positions=self.proprio_hist_len,
+                    n_ctx=self.proprio_hist_len
+                )
+                num_params = self.discriminator.get_num_params()
+                print(f'Number of discriminator parameters: {num_params}')
+            self.discriminator.to(self.device)
+            self.discriminator_epochs = self.train_config["discriminator_network"]['discriminator_epochs']
         # ---- Normalization ----
         self.obs_mean_std = RunningMeanStd(self.obs_shape).to(self.device) # observation running mean
         self.state_mean_std = RunningMeanStd((self.state_dim,)).to(self.device) # state running mean for asymmetric critic
@@ -103,7 +124,10 @@ class HANDEM(object):
         self.weight_decay = self.train_config.get('weight_decay', 0.0)
         self.actor_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
         self.critic_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
-        self.disc_optimizer = torch.optim.Adam(self.discriminator.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        if full_config["task"]['name'] == 'HANDEM_Reconstruct':
+            self.regressor_optimizer = torch.optim.Adam(self.regressor.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        else:
+            self.disc_optimizer = torch.optim.Adam(self.discriminator.parameters(), self.last_lr, weight_decay=self.weight_decay)
         # ---- PPO Train Param ----
         self.e_clip = self.train_config['e_clip']
         self.clip_value = self.train_config['clip_value']
@@ -143,7 +167,7 @@ class HANDEM(object):
         self.epoch_num = 0
         self.storage = ExperienceBuffer(
             self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.obs_shape[0],
-            self.state_dim, self.actions_num, self.proprio_hist_len, self.device,
+            self.state_dim, self.actions_num, self.proprio_hist_len, self.n_vertices, self.device,
         )
 
         batch_size = self.num_actors
@@ -153,21 +177,23 @@ class HANDEM(object):
         self.dones = torch.ones((batch_size,), dtype=torch.uint8, device=self.device)
         self.agent_steps = 0
         self.max_agent_steps = self.train_config['max_agent_steps']
-        self.early_stopping_patience = self.train_config['early_stopping_patience']
         self.best_rewards = -10000
         # ---- Timing
         self.data_collect_time = 0
         self.rl_train_time = 0
         self.all_time = 0
 
-    def write_stats(self, a_losses, c_losses, b_losses, d_losses, entropies, kls):
+    def write_stats(self, a_losses, c_losses, b_losses, d_losses, r_losses, entropies, kls):
         self.writer.add_scalar('performance/RLTrainFPS', self.agent_steps / self.rl_train_time, self.agent_steps)
         self.writer.add_scalar('performance/EnvStepFPS', self.agent_steps / self.data_collect_time, self.agent_steps)
 
         self.writer.add_scalar('losses/actor_loss', torch.mean(torch.stack(a_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/bounds_loss', torch.mean(torch.stack(b_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/critic_loss', torch.mean(torch.stack(c_losses)).item(), self.agent_steps)
-        self.writer.add_scalar('losses/disc_loss', torch.mean(torch.stack(d_losses)).item(), self.agent_steps)
+        if d_losses is not None:
+            self.writer.add_scalar('losses/disc_loss', torch.mean(torch.stack(d_losses)).item(), self.agent_steps)
+        if r_losses is not None:
+            self.writer.add_scalar('losses/reg_loss', torch.mean(torch.stack(r_losses)).item(), self.agent_steps)
         self.writer.add_scalar('losses/entropy', torch.mean(torch.stack(entropies)).item(), self.agent_steps)
 
         self.writer.add_scalar('info/last_lr', self.last_lr, self.agent_steps)
@@ -179,7 +205,10 @@ class HANDEM(object):
 
     def set_eval(self):
         self.explorer.eval()
-        self.discriminator.eval()
+        if self.discriminator is not None:
+            self.discriminator.eval()
+        if self.regressor is not None:
+            self.regressor.eval()
         if self.normalize_input:
             self.obs_mean_std.eval()
             self.state_mean_std.eval()
@@ -189,7 +218,10 @@ class HANDEM(object):
 
     def set_train(self):
         self.explorer.train()
-        self.discriminator.train()
+        if self.discriminator is not None:
+            self.discriminator.train()
+        if self.regressor is not None:
+            self.regressor.train()
         if self.normalize_input:
             self.obs_mean_std.train()
             self.state_mean_std.train()
@@ -198,7 +230,7 @@ class HANDEM(object):
             self.value_mean_std.train()
 
     def model_act(self, obs_dict):
-        """ Produces action from explorer and prediction from discriminator """
+        """ Produces action from explorer and prediction from discriminator/regressor """
         processed_obs = self.obs_mean_std(obs_dict['obs'])
         processed_state = self.state_mean_std(obs_dict['state'])
         processed_hist = self.hist_mean_std(obs_dict['proprio_hist'])
@@ -209,8 +241,12 @@ class HANDEM(object):
         # forward pass through explorer
         res_dict = self.explorer.act(input_dict)
         res_dict['values'] = self.value_mean_std(res_dict['values'], True)
-        # forward pass through discriminator
-        res_dict['disc_preds'] = self.discriminator(processed_hist)
+        # forward pass through discriminator/regressor
+        if self.discriminator is not None:
+            res_dict['disc_preds'] = self.discriminator(processed_hist)
+        if self.regressor is not None:
+            previous_pred = self.env.vertex_pred.clone()
+            res_dict['reg_preds'] = self.regressor(processed_hist, previous_pred)
         return res_dict
 
     def train(self):
@@ -218,31 +254,27 @@ class HANDEM(object):
         _last_t = time.time()
         self.obs = self.env.reset()
         self.agent_steps = self.batch_size
-        d_loss_prev = torch.inf
         d_loss_min = torch.inf
+        r_loss_min = torch.inf
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
-            a_losses, c_losses, b_losses, d_losses, entropies, kls = self.train_epoch()
-            d_losses_avg = sum(d_losses)/len(d_losses)
+            a_losses, c_losses, b_losses, d_losses, r_losses, entropies, kls = self.train_epoch()
             
             # save checkpoint if discriminator loss is at a minimum
-            if d_losses_avg < d_loss_min:
-                print(f'save current best disc loss: {d_losses_avg:.2f}')
-                d_loss_min = d_losses_avg
-                self.save(os.path.join(self.nn_dir, 'best_disc_loss'))
-
-            # early stopping
-            if d_losses_avg > d_loss_prev:
-                self.early_stopping_counter += 1
-            else:
-                self.early_stopping_counter = 0
-            d_loss_prev = d_losses_avg
-            if self.early_stopping_counter >= self.early_stopping_patience:
-                self.save(os.path.join(self.nn_dir, checkpoint_name))
-                self.save(os.path.join(self.nn_dir, 'last'))
-                print('early stopping')
-                exit()
+            if d_losses is not None:
+                d_losses_avg = sum(d_losses)/len(d_losses)
+                if d_losses_avg < d_loss_min:
+                    print(f'save current best disc loss: {d_losses_avg:.2f}')
+                    d_loss_min = d_losses_avg
+                    self.save(os.path.join(self.nn_dir, 'best_disc_loss'))
+            # save checkpoint if regressor loss is at a minimum
+            if r_losses is not None:
+                r_losses_avg = sum(r_losses)/len(r_losses)
+                if r_losses_avg < r_loss_min:
+                    print(f'save current best reg loss: {r_losses_avg:.2f}')
+                    r_loss_min = r_losses_avg
+                    self.save(os.path.join(self.nn_dir, 'best_reg_loss'))
             
             self.storage.data_dict = None
 
@@ -256,7 +288,7 @@ class HANDEM(object):
                           f'Current Best: {self.best_rewards:.2f}'
             print(info_string)
 
-            self.write_stats(a_losses, c_losses, b_losses, d_losses, entropies, kls)
+            self.write_stats(a_losses, c_losses, b_losses, d_losses, r_losses, entropies, kls)
 
             mean_rewards = self.episode_rewards.get_mean()
             mean_lengths = self.episode_lengths.get_mean()
@@ -283,8 +315,11 @@ class HANDEM(object):
     def save(self, name):
         weights = {
             'explorer': self.explorer.state_dict(),
-            'discriminator': self.discriminator.state_dict(),
         }
+        if self.discriminator is not None:
+            weights['discriminator'] = self.discriminator.state_dict()
+        if self.regressor is not None:
+            weights['regressor'] = self.regressor.state_dict()
         if self.obs_mean_std:
             weights['obs_mean_std'] = self.obs_mean_std.state_dict()
         if self.state_mean_std:
@@ -300,7 +335,10 @@ class HANDEM(object):
             return
         checkpoint = torch.load(fn)
         self.explorer.load_state_dict(checkpoint['explorer'])
-        self.discriminator.load_state_dict(checkpoint['discriminator'])
+        if 'discriminator' in checkpoint:
+            self.discriminator.load_state_dict(checkpoint['discriminator'])
+        if 'regressor' in checkpoint:
+            self.regressor.load_state_dict(checkpoint['regressor'])
         self.obs_mean_std.load_state_dict(checkpoint['obs_mean_std'])
         self.state_mean_std.load_state_dict(checkpoint['state_mean_std'])
         self.value_mean_std.load_state_dict(checkpoint['value_mean_std'])
@@ -339,7 +377,7 @@ class HANDEM(object):
         for _ in range(0, self.critic_mini_epochs):
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, _, _ = self.storage[i]
+                    returns, actions, obs, states, _, _, _, _ = self.storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -372,8 +410,7 @@ class HANDEM(object):
             ep_kls = []
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, _, _ = self.storage[i]
-
+                    returns, actions, obs, states, _, _, _, _ = self.storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -434,7 +471,7 @@ class HANDEM(object):
         d_losses = []
         for _ in range(self.discriminator_epochs):
             for i in range(len(self.storage)):
-                _, _, _, _, _, _, _, _, _, proprio_hist, labels = self.storage[i]
+                _, _, _, _, _, _, _, _, _, proprio_hist, labels, _, _ = self.storage[i]
                 proprio_hist = self.hist_mean_std(proprio_hist)
                 # forward pass
                 disc_preds = self.discriminator(proprio_hist).to(self.device)
@@ -449,6 +486,27 @@ class HANDEM(object):
                 self.disc_optimizer.step()
                 d_losses.append(d_loss)
         return d_losses
+    
+    def train_regressor(self):
+        r_losses = []
+        for _ in range(self.regressor_epochs):
+            for i in range(len(self.storage)):
+                _, _, _, _, _, _, _, _, _, proprio_hist, _, vertex_labels, vertex_preds = self.storage[i]
+                proprio_hist = self.hist_mean_std(proprio_hist)
+                vertex_preds = vertex_preds.to(self.device) # (B, N, 2)
+                # forward pass
+                reg_preds = self.regressor(proprio_hist, vertex_preds)
+                updated_vertex_preds = vertex_preds + reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
+                # compute regressor loss
+                r_loss, _ = chamfer_distance(vertex_labels, updated_vertex_preds)
+                # update regressor
+                self.regressor_optimizer.zero_grad()
+                r_loss.backward()
+                if self.truncate_grads:
+                    torch.nn.utils.clip_grad_norm_(self.regressor.parameters(), self.grad_norm)
+                self.regressor_optimizer.step()
+                r_losses.append(r_loss)
+        return r_losses
 
     def train_epoch(self):
         # collect minibatch data
@@ -464,21 +522,32 @@ class HANDEM(object):
         c_losses = self.train_critic()
         # train the actor
         a_losses, b_losses, entropies, kls = self.train_actor()
-        # train the discriminator
-        d_losses = self.train_discriminator()
-
+        # train the discriminator/regressor
+        d_losses = None
+        r_losses = None
+        if self.discriminator is not None:
+            d_losses = self.train_discriminator()
+        if self.regressor is not None:
+            r_losses = self.train_regressor()
         self.rl_train_time += (time.time() - _t)
-        return a_losses, c_losses, b_losses, d_losses, entropies, kls
+        return a_losses, c_losses, b_losses, d_losses, r_losses, entropies, kls
 
     def play_steps(self):
         for n in range(self.horizon_length):
             res_dict = self.model_act(self.obs)
-            # update environment with discriminator prediction
-            discriminator_output = res_dict['disc_preds']
-            self.env.update_discriminator_output(discriminator_output)
+            # update environment with prediction
+            if self.discriminator is not None:
+                discriminator_output = res_dict['disc_preds'].detach()
+                self.env.update_discriminator_output(discriminator_output)
+            if self.regressor is not None:
+                regressor_output = res_dict['reg_preds'].detach()
+                vertex_pred = self.env.vertex_pred.clone()
+                self.storage.update_data('vertex_preds', n, vertex_pred)
+                self.env.update_regressor_output(regressor_output)
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])
+            self.storage.update_data('vertex_labels', n, self.obs['vertex_labels'])
             self.storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
             self.storage.update_data('object_labels', n, self.labels) # storing this allows us to vary batchsize without trouble
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:
@@ -500,7 +569,10 @@ class HANDEM(object):
             self.episode_rewards.update(self.current_rewards)
             self.episode_lengths.update(self.current_lengths)
             # update prediction success rate
-            success = self.env.get_disc_correct()
+            if self.discriminator is not None:
+                success = self.env.get_disc_correct()
+            if self.regressor is not None:
+                success = self.env.get_reg_correct()
             self.num_success.update(success)
             assert isinstance(infos, dict), 'Info Should be a Dict'
             self.extra_info = {}
