@@ -103,8 +103,9 @@ class IHMBase(VecTask):
             "ftip_contact_bool": 5,
             "ftip_contact_pos": 15,
         }
+        self.obs_hist_len = self.cfg["env"]["obsHistoryLen"]
         self.cfg["env"]["numStates"] = sum([dims[key] for key in self.cfg["env"]["feedbackState"]])
-        self.cfg["env"]["numObservations"] = sum([dims[key] for key in self.cfg["env"]["feedbackObs"]])
+        self.cfg["env"]["numObservations"] = sum([dims[key] for key in self.cfg["env"]["feedbackObs"]]) * self.obs_hist_len
         self.cfg["env"]["numActions"] = 15
 
     def _setup_object_params(self):
@@ -511,7 +512,7 @@ class IHMBase(VecTask):
 
     def _allocate_task_buffer(self, num_envs):
         self.prop_hist_len = self.cfg["env"]["propHistoryLen"]
-        self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs), device=self.device, dtype=torch.float)
+        self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs // self.obs_hist_len), device=self.device, dtype=torch.float)
 
     def _refresh_tensors(self):
         """Updates data in tensor views created in create_tensor_views(). To be used judicioulsy as
@@ -599,7 +600,7 @@ class IHMBase(VecTask):
         at_reset_env_ids = self.at_reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.obs_buf_lag_history[at_reset_env_ids] = cur_obs_buf[at_reset_env_ids].unsqueeze(1)
         # pulls the last obs_hist_len observations from the history buffer
-        t_buf = (self.obs_buf_lag_history[:, -1:].reshape(self.num_envs, -1)).clone()
+        t_buf = (self.obs_buf_lag_history[:, -self.obs_hist_len:].reshape(self.num_envs, -1)).clone()
 
         self.obs_buf[:, : t_buf.shape[1]] = t_buf
         self.at_reset_buf[at_reset_env_ids] = 0

@@ -42,6 +42,7 @@ class HANDEM_Reconstruct(IHMBase):
         
         self.vertex_pred = torch.zeros((self.num_envs, self.num_vertices, 2), device=self.device)
         self.visualize_enabled = (self.headless==False) and self.num_envs == 1
+        self.lbda = self.cfg["env"]["edge_loss_lambda"]
         if self.visualize_enabled:
             self.label_offset = np.array([0.3, 0.0, 0.2])
             self.pred_offset = np.array([0.4, 0.0, 0.2])
@@ -61,7 +62,6 @@ class HANDEM_Reconstruct(IHMBase):
     def update_regressor_output(self, output):
         output = output.reshape(self.num_envs, self.num_vertices, 2)
         self.vertex_pred = self.vertex_pred + output.clone().detach().to(self.device)
-        
 
     def _setup_reset_config(self):
         self.loss_threshold = self.cfg["env"]["reset"]["loss_threshold"]
@@ -108,7 +108,7 @@ class HANDEM_Reconstruct(IHMBase):
             self.visualize_vertices(self.vertex_pred.clone().cpu().numpy(), self.pred_offset, color=[1, 0, 0])
         # correct predictions
         self.loss, self.correct = self.compute_regressor_loss()
-        reg_loss_reward = -1 * self.reg_loss_reward * self.loss.unsqueeze(1)
+        reg_loss_reward = self.reg_loss_reward * torch.exp(-1 * self.loss).unsqueeze(1)
         # ftip-object distance reward
         total_ftip_obj_disp = self.compute_ftip_obj_disp()
         ftip_obj_dist_rew = -1 * self.ftip_obj_dist_rew * total_ftip_obj_disp.unsqueeze(1)

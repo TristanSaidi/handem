@@ -22,18 +22,19 @@ def transform_op(arr):
 class ExperienceBuffer(Dataset):
     """Store on-policy rollouts"""
 
-    def __init__(self, num_envs, horizon_length, batch_size, minibatch_size, obs_dim, state_dim, act_dim, proprio_hist_len, n_vertices, device):
+    def __init__(self, num_envs, horizon_length, batch_size, minibatch_size, obs_dim, obs_hist_len, state_dim, act_dim, proprio_hist_len, n_vertices, device):
         self.device = device
         self.num_envs = num_envs
         self.transitions_per_env = horizon_length
 
         self.data_dict = None
         self.obs_dim = obs_dim
+        self.obs_hist_len = obs_hist_len
         self.state_dim = state_dim
         self.act_dim = act_dim
         self.proprio_hist_len = proprio_hist_len
         self.storage_dict = {
-            "obses": torch.zeros((self.transitions_per_env, self.num_envs, self.obs_dim), dtype=torch.float32, device=self.device),
+            "obses": torch.zeros((self.transitions_per_env, self.num_envs, self.obs_dim * self.obs_hist_len), dtype=torch.float32, device=self.device),
             "proprio_hist": torch.zeros((self.transitions_per_env, self.num_envs, self.proprio_hist_len, self.obs_dim), dtype=torch.float32, device=self.device),
             "object_labels": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
             "vertex_labels": None if n_vertices is None else torch.zeros((self.transitions_per_env, self.num_envs, n_vertices,  2), dtype=torch.float32, device=self.device),

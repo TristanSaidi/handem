@@ -49,7 +49,7 @@ class HANDEM(object):
         self.explorer.to(self.device)
         # ---- Discriminator/Regressor ----
         self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
-        self.proprio_dim = self.env.num_obs
+        self.proprio_dim = self.env.num_obs // self.env.obs_hist_len
         self.discriminator = None
         self.regressor = None
         self.n_vertices = None
@@ -159,14 +159,14 @@ class HANDEM(object):
         writer = SummaryWriter(self.tb_dif)
         self.writer = writer
 
-        self.episode_rewards = AverageScalarMeter(1000)
-        self.episode_lengths = AverageScalarMeter(1000)
-        self.num_success = AverageScalarMeter(1000)
+        self.episode_rewards = AverageScalarMeter(int(1.6e10))
+        self.episode_lengths = AverageScalarMeter(int(1.6e10))
+        self.num_success = AverageScalarMeter(int(1.6e10))
 
         self.obs = None
         self.epoch_num = 0
         self.storage = ExperienceBuffer(
-            self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.obs_shape[0],
+            self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.proprio_dim, self.env.obs_hist_len,
             self.state_dim, self.actions_num, self.proprio_hist_len, self.n_vertices, self.device,
         )
 
@@ -272,7 +272,7 @@ class HANDEM(object):
             if r_losses is not None:
                 r_losses_avg = sum(r_losses)/len(r_losses)
                 if r_losses_avg < r_loss_min:
-                    print(f'save current best reg loss: {r_losses_avg:.2f}')
+                    print(f'save current best reg loss: {r_losses_avg:.5f}')
                     r_loss_min = r_losses_avg
                     self.save(os.path.join(self.nn_dir, 'best_reg_loss'))
             
@@ -302,7 +302,6 @@ class HANDEM(object):
 
             if self.save_freq > 0:
                 if self.epoch_num % self.save_freq == 0:
-                    self.save(os.path.join(self.nn_dir, checkpoint_name))
                     self.save(os.path.join(self.nn_dir, 'last'))
 
             if mean_rewards > self.best_rewards and self.epoch_num >= self.save_best_after:
@@ -510,7 +509,7 @@ class HANDEM(object):
                 vertex_offset = torch.cat((updated_vertex_preds[:, 1:, :], updated_vertex_preds[:, 0:1, :]), dim=1)
                 edge_loss = torch.linalg.norm(vertex_offset - updated_vertex_preds, dim=2).mean()
                 # total loss
-                r_loss = chamfer_loss + edge_loss
+                r_loss = chamfer_loss + self.env.lbda * edge_loss
                 # update regressor
                 self.regressor_optimizer.zero_grad()
                 r_loss.backward()

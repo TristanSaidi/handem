@@ -10,6 +10,7 @@ env:
   default_object_euler: [0, 0, 3.14]
   
   propHistoryLen: 10
+  obsHistoryLen: 10
 
   rotationAxis: 2 # 0: X, 1: Y, 2: Z
   envSpacing: 0.75

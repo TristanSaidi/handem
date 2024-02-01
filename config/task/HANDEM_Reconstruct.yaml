@@ -11,7 +11,7 @@ env:
   rand_object_reset: True
 
   fix_object: True
-
+  edge_loss_lambda: 0.1
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
@@ -23,12 +23,12 @@ env:
 
   # reward terms
   reward:
-    reg_loss_reward: 0.1
+    reg_loss_reward: 1.0
     # heuristic terms
     ftip_obj_dist_rew: 0.0 # encourage contact
     object_disp_rew: 0.0 # encourage object to stay in place
-    contact_loc_pen: 0.1 # penalize contact with back of fingertips
-    hand_pose_pen: 0.0 # penalize hand joint disp from "close-hand"
+    contact_loc_pen: 0.0 # penalize contact with back of fingertips
+    hand_pose_pen: 0.1 # penalize hand joint disp from "close-hand"
 
   randomize: False
   randomization_params:
