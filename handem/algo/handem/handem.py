@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBuffer
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import MLPDiscriminator, MLPRegressor, GPT2Discriminator
+from handem.algo.models.models import MLPDiscriminator, MLPRegressor
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
@@ -560,10 +560,10 @@ class HANDEM(object):
                 vertex_pred = self.env.vertex_pred.clone()
                 self.storage.update_data('vertex_preds', n, vertex_pred)
                 self.env.update_regressor_output(regressor_output, self.autoregressive)
+                self.storage.update_data('vertex_labels', n, self.obs['vertex_labels'])
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])
-            self.storage.update_data('vertex_labels', n, self.obs['vertex_labels'])
             self.storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
             self.storage.update_data('object_labels', n, self.labels) # storing this allows us to vary batchsize without trouble
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:

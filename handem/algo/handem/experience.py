@@ -37,8 +37,6 @@ class ExperienceBuffer(Dataset):
             "obses": torch.zeros((self.transitions_per_env, self.num_envs, self.obs_dim * self.obs_hist_len), dtype=torch.float32, device=self.device),
             "proprio_hist": torch.zeros((self.transitions_per_env, self.num_envs, self.proprio_hist_len, self.obs_dim), dtype=torch.float32, device=self.device),
             "object_labels": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
-            "vertex_labels": None if n_vertices is None else torch.zeros((self.transitions_per_env, self.num_envs, n_vertices,  2), dtype=torch.float32, device=self.device),
-            "vertex_preds": None if n_vertices is None else torch.zeros((self.transitions_per_env, self.num_envs, n_vertices,  2), dtype=torch.float32, device=self.device),
             "states": torch.zeros((self.transitions_per_env, self.num_envs, self.state_dim), dtype=torch.float32, device=self.device),
             "rewards": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
             "values": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
@@ -50,6 +48,9 @@ class ExperienceBuffer(Dataset):
             "returns": torch.zeros((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
         }
 
+        if n_vertices is not None:
+            self.storage_dict["vertex_labels"] = torch.zeros((self.transitions_per_env, self.num_envs, n_vertices,  2), dtype=torch.float32, device=self.device)
+            self.storage_dict["vertex_preds"] = torch.zeros((self.transitions_per_env, self.num_envs, n_vertices,  2), dtype=torch.float32, device=self.device)
         self.batch_size = batch_size
         self.minibatch_size = minibatch_size
         self.length = self.batch_size // self.minibatch_size
@@ -68,21 +69,38 @@ class ExperienceBuffer(Dataset):
                 input_dict[k] = v_dict
             else:
                 input_dict[k] = v[start:end]
-        return (
-            input_dict["values"],
-            input_dict["neglogpacs"],
-            input_dict["advantages"],
-            input_dict["mus"],
-            input_dict["sigmas"],
-            input_dict["returns"],
-            input_dict["actions"],
-            input_dict["obses"],
-            input_dict["states"],
-            input_dict["proprio_hist"],
-            input_dict["object_labels"],
-            input_dict["vertex_labels"],
-            input_dict["vertex_preds"]
-        )
+        if "vertex_labels" in input_dict:
+            return (
+                input_dict["values"],
+                input_dict["neglogpacs"],
+                input_dict["advantages"],
+                input_dict["mus"],
+                input_dict["sigmas"],
+                input_dict["returns"],
+                input_dict["actions"],
+                input_dict["obses"],
+                input_dict["states"],
+                input_dict["proprio_hist"],
+                input_dict["object_labels"],
+                input_dict["vertex_labels"],
+                input_dict["vertex_preds"]
+            )
+        else:
+            return (
+                input_dict["values"],
+                input_dict["neglogpacs"],
+                input_dict["advantages"],
+                input_dict["mus"],
+                input_dict["sigmas"],
+                input_dict["returns"],
+                input_dict["actions"],
+                input_dict["obses"],
+                input_dict["states"],
+                input_dict["proprio_hist"],
+                input_dict["object_labels"],
+                None,
+                None
+            )
 
     def update_mu_sigma(self, mu, sigma):
         start = self.last_range[0]
