@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import transformers
 from handem.algo.models.architectures.mlp import MLP
-from handem.algo.models.architectures.transformer import GPT2Model
+from handem.algo.models.architectures.transformer import Block
 
 class MLPDiscriminator(nn.Module):
     def __init__(self, kwargs):
@@ -59,75 +59,53 @@ class MLPRegressor(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         return n_params
 
-class GPT2Discriminator(nn.Module):
+class GPTDiscriminator(nn.Module):
 
-    def __init__(
-                self,
-                obs_dim,
-                hidden_size,
-                num_classes,
-                proprio_hist_len,
-                **kwargs
-        ):
-            super(GPT2Discriminator, self).__init__()
+    def __init__(self, n_layer, n_head, n_embd, proprio_hist_len, proprio_dim, num_classes, dropout, device):
+        super().__init__()
+        # each token directly reads off the logits for the next token from a lookup table
+        self.history_embedding = nn.Linear(proprio_dim, n_embd)
+        self.position_embedding_table = nn.Embedding(proprio_hist_len, n_embd)
+        self.blocks = nn.Sequential(*[Block(n_head, n_embd, dropout) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_embd) # final layer norm
+        self.predict_class = nn.Linear(n_embd, num_classes)
+        self.device = device
+        # better init, not covered in the original GPT video, but important, will cover in followup video
+        self.apply(self._init_weights)
 
-
-            self.obs_dim = obs_dim
-
-            self.hidden_size = hidden_size
-            config = transformers.GPT2Config(
-                vocab_size=1,  # doesn't matter -- we don't use the vocab
-                n_embd=hidden_size,
-                **kwargs
-            )
-
-            # note: the only difference between this GPT2Model and the default Huggingface version
-            # is that the positional embeddings are removed (since we'll add those ourselves)
-            self.transformer = GPT2Model(config)
-
-            self.embed_position = nn.Embedding(proprio_hist_len, hidden_size)
-            self.embed_proprio_hist = torch.nn.Linear(self.obs_dim, hidden_size)
-
-            self.embed_ln = nn.LayerNorm(hidden_size)
-
-            # note: we don't predict states or returns for the paper
-            self.predict_class = nn.Linear(hidden_size, num_classes)
-
-    def forward(self, proprio_hist, attention_mask=None):
-
-        batch_size, seq_length = proprio_hist.shape[0], proprio_hist.shape[1]
-
-        if attention_mask is None:
-            # attention mask for GPT: 1 if can be attended to, 0 if not
-            attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long).to(proprio_hist.device)
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
-        positions = torch.arange(0, seq_length, dtype=torch.long, device=proprio_hist.device)
+    def forward(self, proprio_hist, targets=None):
+        # x: tensor of size (batch_size x proprio_hist_len x proprio_dim)
+        # targets: tensor of size (batch_size x proprio_hist_len)
+        _, proprio_hist_len, _ = proprio_hist.shape
 
-        # embed each modality with a different head
-        proprio_hist_embeddings = self.embed_proprio_hist(proprio_hist)
-        position_embeddings = self.embed_position(positions)
+        hist_emb = self.history_embedding(proprio_hist) # (batch_size x proprio_hist_len x proprio_dim) --> (batch_size x proprio_hist_len x n_embd)
+        pos_emb = self.position_embedding_table(torch.arange(proprio_hist_len, device=self.device)) # (proprio_hist_len x proprio_hist_len)
+        x = hist_emb + pos_emb # (batch_size x proprio_hist_len x n_embd)
+        x = self.blocks(x) # (batch_size x proprio_hist_len x n_embd)
+        x = self.ln_f(x) # (batch_size x proprio_hist_len x n_embd)
+        logits = self.predict_class(x) # (batch_size x proprio_hist_len x num_classes)
 
-        # time embeddings are treated similar to positional embeddings
-        proprio_hist_embeddings = proprio_hist_embeddings + position_embeddings
-
-        proprio_hist_embeddings = self.embed_ln(proprio_hist_embeddings)
-
-        # we feed in the input embeddings (not word indices as in NLP) to the model
-        transformer_outputs = self.transformer(
-            inputs_embeds=proprio_hist_embeddings,
-            attention_mask=attention_mask,
-        )
-        x = transformer_outputs['last_hidden_state']
-        # we only care about the most recent prediction
-        x = x[:, -1, :]
-        # predict the class
-        class_logits = self.predict_class(x)
-        log_softmax = F.log_softmax(class_logits, dim=-1)
-        return log_softmax
+        if targets is None:
+            return logits
+        else:
+            batch_size, proprio_hist_len, num_classes = logits.shape
+            logits = logits.view(batch_size*proprio_hist_len, num_classes)
+            targets = targets.reshape(batch_size*proprio_hist_len)
+            loss = F.cross_entropy(logits, targets)
+            return logits, loss
 
     def get_num_params(self):
         n_params = sum(p.numel() for p in self.parameters())
         return n_params
+
 
 class ActorCritic(nn.Module):
     def __init__(self, kwargs):

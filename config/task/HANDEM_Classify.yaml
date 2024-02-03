@@ -10,6 +10,9 @@ env:
   use_saved_grasps: False
   rand_object_reset: True
 
+  propHistoryLen: 20
+  obsHistoryLen: 1
+
   fix_object: True
 
   # observation and state
