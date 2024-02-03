@@ -12,9 +12,9 @@ import torch
 
 from tensorboardX import SummaryWriter
 
-from handem.algo.handem.experience import ExperienceBuffer
+from handem.algo.handem.experience import ExperienceBufferExplorer, ExperienceBufferDiscriminator, ExperienceBufferRegressor
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import MLPDiscriminator, MLPRegressor
+from handem.algo.models.models import MLPDiscriminator, MLPRegressor, GPTDiscriminator
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
@@ -87,21 +87,23 @@ class HANDEM(object):
                 num_params = self.discriminator.get_num_params()
                 print(f'Number of discriminator parameters: {num_params}')
             else:
-                obs_dim = self.obs_shape[0]
-                hidden_size = self.disc_net_config.transformer.hidden_size
-                num_classes = self.num_classes
-                proprio_hist_len = self.proprio_hist_len
                 n_layer = self.disc_net_config.transformer.n_layer
                 n_head = self.disc_net_config.transformer.n_head
-                self.discriminator = GPT2Discriminator(
-                    obs_dim,
-                    hidden_size,
-                    num_classes,
-                    proprio_hist_len,
-                    n_layer=n_layer,
-                    n_head=n_head,
-                    n_positions=self.proprio_hist_len,
-                    n_ctx=self.proprio_hist_len
+                n_embd = self.disc_net_config.transformer.n_embd
+                proprio_hist_len = self.proprio_hist_len
+                proprio_dim = self.proprio_dim
+                num_classes = self.num_classes
+                dropout = self.disc_net_config.transformer.dropout
+                device = self.device
+                self.discriminator = GPTDiscriminator(
+                    n_layer, 
+                    n_head, 
+                    n_embd, 
+                    proprio_hist_len, 
+                    proprio_dim, 
+                    num_classes, 
+                    dropout, 
+                    device
                 )
                 num_params = self.discriminator.get_num_params()
                 print(f'Number of discriminator parameters: {num_params}')
@@ -167,10 +169,23 @@ class HANDEM(object):
 
         self.obs = None
         self.epoch_num = 0
-        self.storage = ExperienceBuffer(
+        # explorer (ppo) storage
+        self.ppo_storage = ExperienceBufferExplorer(
             self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.proprio_dim, self.env.obs_hist_len,
-            self.state_dim, self.actions_num, self.proprio_hist_len, self.n_vertices, self.device,
+            self.state_dim, self.actions_num, self.device,
         )
+
+        if self.discriminator is not None:
+            self.disc_minibatch_size = self.train_config['discriminator_minibatch_size']
+            self.discriminator_storage = ExperienceBufferDiscriminator(
+                self.num_actors, self.horizon_length, self.batch_size, self.disc_minibatch_size, self.proprio_dim, self.proprio_hist_len, self.device,
+            )
+
+        if self.regressor is not None:
+            self.reg_minibatch_size = self.train_config['regressor_minibatch_size']
+            self.regressor_storage = ExperienceBufferRegressor(
+                self.num_actors, self.horizon_length, self.batch_size, self.reg_minibatch_size, self.proprio_dim, self.proprio_hist_len, self.n_vertices, self.device,
+            )
 
         batch_size = self.num_actors
         current_rewards_shape = (batch_size, 1)
@@ -278,7 +293,7 @@ class HANDEM(object):
                     r_loss_min = r_losses_avg
                     self.save(os.path.join(self.nn_dir, 'best_reg_loss'))
             
-            self.storage.data_dict = None
+            self.ppo_storage.data_dict = None
 
             all_fps = self.agent_steps / (time.time() - _t)
             last_fps = self.batch_size / (time.time() - _last_t)
@@ -383,9 +398,9 @@ class HANDEM(object):
         "Train critic network on data from rollout"
         c_losses = []
         for _ in range(0, self.critic_mini_epochs):
-            for i in range(len(self.storage)):
+            for i in range(len(self.ppo_storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, _, _, _, _ = self.storage[i]
+                    returns, actions, obs, states = self.ppo_storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -416,9 +431,9 @@ class HANDEM(object):
         entropies, kls = [], []
         for _ in range(0, self.actor_mini_epochs):
             ep_kls = []
-            for i in range(len(self.storage)):
+            for i in range(len(self.ppo_storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, states, _, _, _, _ = self.storage[i]
+                    returns, actions, obs, states = self.ppo_storage[i]
                 obs = self.obs_mean_std(obs)
                 states = self.state_mean_std(states)
                 batch_dict = {
@@ -466,7 +481,7 @@ class HANDEM(object):
                 if self.bounds_loss_coef is not None:
                     b_losses.append(b_loss)
 
-                self.storage.update_mu_sigma(mu.detach(), sigma.detach())
+                self.ppo_storage.update_mu_sigma(mu.detach(), sigma.detach())
 
             av_kls = torch.mean(torch.stack(ep_kls))
             self.last_lr = self.scheduler.update(self.last_lr, av_kls.item())
@@ -478,14 +493,20 @@ class HANDEM(object):
     def train_discriminator(self):
         d_losses = []
         for _ in range(self.discriminator_epochs):
-            for i in range(len(self.storage)):
-                _, _, _, _, _, _, _, _, _, proprio_hist, labels, _, _ = self.storage[i]
+            for i in range(len(self.discriminator_storage)):
+                proprio_hist, labels = self.discriminator_storage[i]
                 proprio_hist = self.hist_mean_std(proprio_hist)
-                # forward pass
-                disc_preds = self.discriminator(proprio_hist).to(self.device)
-                # compute discriminator loss
-                labels = labels.squeeze(-1).type(torch.LongTensor).to(self.device)
-                d_loss = torch.nn.functional.nll_loss(disc_preds, labels)
+                labels = labels.type(torch.LongTensor).to(self.device)
+                if self.disc_arch == 'mlp':
+                    # forward pass
+                    disc_preds = self.discriminator(proprio_hist).to(self.device)
+                    # compute discriminator loss
+                    d_loss = torch.nn.functional.nll_loss(disc_preds, labels.squeeze(-1))
+                else:
+                    # broadcast labels to (batch_size x proprio_hist_len x num_classes)
+                    labels = labels.broadcast_to(proprio_hist.shape[0], proprio_hist.shape[1])
+                    # forward pass
+                    disc_preds, d_loss = self.discriminator(proprio_hist, labels)
                 # update discriminator
                 self.disc_optimizer.zero_grad()
                 d_loss.backward()
@@ -498,8 +519,8 @@ class HANDEM(object):
     def train_regressor(self):
         r_losses = []
         for _ in range(self.regressor_epochs):
-            for i in range(len(self.storage)):
-                _, _, _, _, _, _, _, _, _, proprio_hist, _, vertex_labels, vertex_preds = self.storage[i]
+            for i in range(len(self.regressor_storage)):
+                proprio_hist, vertex_labels, vertex_preds = self.regressor_storage[i]
                 proprio_hist = self.hist_mean_std(proprio_hist)
                 vertex_preds = vertex_preds.to(self.device) # (B, N, 2)
                 # forward pass
@@ -555,29 +576,29 @@ class HANDEM(object):
             if self.discriminator is not None:
                 discriminator_output = res_dict['disc_preds'].detach()
                 self.env.update_discriminator_output(discriminator_output)
+                self.discriminator_storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
+                self.discriminator_storage.update_data('object_labels', n, self.labels) # storing this allows us to vary batchsize without trouble
             if self.regressor is not None:
                 regressor_output = res_dict['reg_preds'].detach()
                 vertex_pred = self.env.vertex_pred.clone()
-                self.storage.update_data('vertex_preds', n, vertex_pred)
+                self.regressor_storage.update_data('vertex_preds', n, vertex_pred)
                 self.env.update_regressor_output(regressor_output, self.autoregressive)
-                self.storage.update_data('vertex_labels', n, self.obs['vertex_labels'])
+                self.regressor_storage.update_data('vertex_labels', n, self.obs['vertex_labels'])
             # collect o_t
-            self.storage.update_data('obses', n, self.obs['obs'])
-            self.storage.update_data('states', n, self.obs['state'])
-            self.storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
-            self.storage.update_data('object_labels', n, self.labels) # storing this allows us to vary batchsize without trouble
+            self.ppo_storage.update_data('obses', n, self.obs['obs'])
+            self.ppo_storage.update_data('states', n, self.obs['state'])
             for k in ['actions', 'neglogpacs', 'values', 'mus', 'sigmas']:
-                self.storage.update_data(k, n, res_dict[k])
+                self.ppo_storage.update_data(k, n, res_dict[k])
             # do env step
             actions = torch.clamp(res_dict['actions'], -1.0, 1.0)
             self.obs, rewards, self.dones, infos = self.env.step(actions)
             rewards = rewards.unsqueeze(1)
             # update dones and rewards after env step
-            self.storage.update_data('dones', n, self.dones)
+            self.ppo_storage.update_data('dones', n, self.dones)
             shaped_rewards = 0.01 * rewards.clone()
             if self.value_bootstrap and 'time_outs' in infos:
                 shaped_rewards += self.gamma * res_dict['values'] * infos['time_outs'].unsqueeze(1).float()
-            self.storage.update_data('rewards', n, shaped_rewards)
+            self.ppo_storage.update_data('rewards', n, shaped_rewards)
 
             self.current_rewards += rewards
             self.current_lengths += 1
@@ -606,18 +627,21 @@ class HANDEM(object):
         last_values = res_dict['values']
 
         self.agent_steps += self.batch_size
-        self.storage.computer_return(last_values, self.gamma, self.tau)
-        self.storage.prepare_training()
-
-        returns = self.storage.data_dict['returns']
-        values = self.storage.data_dict['values']
+        self.ppo_storage.computer_return(last_values, self.gamma, self.tau)
+        self.ppo_storage.prepare_training()
+        if self.discriminator is not None:
+            self.discriminator_storage.prepare_training()
+        if self.regressor is not None:
+            self.regressor_storage.prepare_training()
+        returns = self.ppo_storage.data_dict['returns']
+        values = self.ppo_storage.data_dict['values']
         if self.normalize_value:
             self.value_mean_std.train()
             values = self.value_mean_std(values)
             returns = self.value_mean_std(returns)
             self.value_mean_std.eval()
-        self.storage.data_dict['values'] = values
-        self.storage.data_dict['returns'] = returns
+        self.ppo_storage.data_dict['values'] = values
+        self.ppo_storage.data_dict['returns'] = returns
 
 
 def policy_kl(p0_mu, p0_sigma, p1_mu, p1_sigma):
