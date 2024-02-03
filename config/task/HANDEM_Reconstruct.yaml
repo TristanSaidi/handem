@@ -6,15 +6,18 @@ name: HANDEM_Reconstruct
 env:
   object_dataset: 'Tandem2D'
   objectOverride: 
-  episodeLength: 300
+  episodeLength: 80
   use_saved_grasps: False
   rand_object_reset: True
 
   fix_object: True
-  edge_loss_lambda: 0.1
+  edge_loss_lambda: 0.01
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
+
+  propHistoryLen: 20
+  obsHistoryLen: 40
 
   reset:
     loss_threshold: 1e-4
@@ -24,11 +27,12 @@ env:
   # reward terms
   reward:
     reg_loss_reward: 1.0
+    reg_loss_temp: 0.01
     # heuristic terms
-    ftip_obj_dist_rew: 0.0 # encourage contact
+    ftip_obj_dist_rew: 0.05 # encourage contact
     object_disp_rew: 0.0 # encourage object to stay in place
     contact_loc_pen: 0.0 # penalize contact with back of fingertips
-    hand_pose_pen: 0.1 # penalize hand joint disp from "close-hand"
+    hand_pose_pen: 0.01 # penalize hand joint disp from "close-hand"
 
   randomize: False
   randomization_params:
