@@ -31,7 +31,7 @@ handem:
   # snapshot setting
   save_best_after: 0
   save_frequency: 50
-  max_agent_steps: 500000000
+  max_agent_steps: 1000000000
   ppo_network:
     mlp:
       actor_units: [512, 512, 256, 128]
@@ -46,6 +46,7 @@ handem:
       n_head: 1
       hidden_size: 32
   reconstruction_network:
+    autoregressive: False
     regressor_epochs: 5
     mlp:
       units: [256, 128]

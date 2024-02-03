@@ -45,7 +45,7 @@ class HANDEM_Reconstruct(IHMBase):
         self.lbda = self.cfg["env"]["edge_loss_lambda"]
         if self.visualize_enabled:
             self.label_offset = np.array([0.3, 0.0, 0.2])
-            self.pred_offset = np.array([0.4, 0.0, 0.2])
+            self.pred_offset = np.array([0.3, 0.0, 0.2])
 
     def _setup_rotation_axis(self, axis_idx=2):
         self.rotation_axis = torch.zeros((self.num_envs, 3), device=self.device)
@@ -54,14 +54,18 @@ class HANDEM_Reconstruct(IHMBase):
     def _setup_reward_config(self):
         # Reward
         self.reg_loss_reward = self.cfg["env"]["reward"]["reg_loss_reward"]
+        self.reg_loss_temp = self.cfg["env"]["reward"]["reg_loss_temp"]
         self.ftip_obj_dist_rew = self.cfg["env"]["reward"]["ftip_obj_dist_rew"]
         self.object_disp_rew = self.cfg["env"]["reward"]["object_disp_rew"]
         self.contact_loc_pen = self.cfg["env"]["reward"]["contact_loc_pen"]
         self.hand_pose_pen = self.cfg["env"]["reward"]["hand_pose_pen"]
 
-    def update_regressor_output(self, output):
+    def update_regressor_output(self, output, autoregressive):
         output = output.reshape(self.num_envs, self.num_vertices, 2)
-        self.vertex_pred = self.vertex_pred + output.clone().detach().to(self.device)
+        if autoregressive:
+            self.vertex_pred = self.vertex_pred + output.clone().detach().to(self.device)
+        else:
+            self.vertex_pred = output.clone().detach().to(self.device)
 
     def _setup_reset_config(self):
         self.loss_threshold = self.cfg["env"]["reset"]["loss_threshold"]
@@ -108,7 +112,7 @@ class HANDEM_Reconstruct(IHMBase):
             self.visualize_vertices(self.vertex_pred.clone().cpu().numpy(), self.pred_offset, color=[1, 0, 0])
         # correct predictions
         self.loss, self.correct = self.compute_regressor_loss()
-        reg_loss_reward = self.reg_loss_reward * torch.exp(-1 * self.loss).unsqueeze(1)
+        reg_loss_reward = self.reg_loss_reward * torch.exp(-1 * self.loss/self.reg_loss_temp).unsqueeze(1)
         # ftip-object distance reward
         total_ftip_obj_disp = self.compute_ftip_obj_disp()
         ftip_obj_dist_rew = -1 * self.ftip_obj_dist_rew * total_ftip_obj_disp.unsqueeze(1)

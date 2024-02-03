@@ -57,6 +57,7 @@ class HANDEM(object):
             self.reconstruction_net_config = full_config.train.handem.reconstruction_network
             self.n_vertices = self.reconstruction_net_config.n_vertices
             self.vertex_dim = self.reconstruction_net_config.vertex_dim
+            self.autoregressive = self.reconstruction_net_config.autoregressive
             units = self.reconstruction_net_config.mlp.units
             regressor_net_config = {
                 'proprio_dim': self.proprio_dim,
@@ -64,6 +65,7 @@ class HANDEM(object):
                 'units': units,
                 'vertex_dim': self.vertex_dim,
                 'n_vertices': self.n_vertices,
+                'autoregressive': self.autoregressive,
             }
             self.regressor = MLPRegressor(regressor_net_config)
             num_params = self.regressor.get_num_params()
@@ -373,7 +375,7 @@ class HANDEM(object):
                 self.env.update_discriminator_output(discriminator_output)
             if self.regressor is not None:
                 regressor_output = self.regressor(hist, self.env.vertex_pred)
-                self.env.update_regressor_output(regressor_output)
+                self.env.update_regressor_output(regressor_output, self.autoregressive)
             # do env step
             obs_dict, r, done, info = self.env.step(mu)
 
@@ -502,7 +504,10 @@ class HANDEM(object):
                 vertex_preds = vertex_preds.to(self.device) # (B, N, 2)
                 # forward pass
                 reg_preds = self.regressor(proprio_hist, vertex_preds)
-                updated_vertex_preds = vertex_preds + reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
+                if self.autoregressive:
+                    updated_vertex_preds = vertex_preds + reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
+                else:
+                    updated_vertex_preds = reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
                 # compute chamfer loss
                 chamfer_loss, _ = chamfer_distance(vertex_labels, updated_vertex_preds)
                 # edge loss
@@ -554,7 +559,7 @@ class HANDEM(object):
                 regressor_output = res_dict['reg_preds'].detach()
                 vertex_pred = self.env.vertex_pred.clone()
                 self.storage.update_data('vertex_preds', n, vertex_pred)
-                self.env.update_regressor_output(regressor_output)
+                self.env.update_regressor_output(regressor_output, self.autoregressive)
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('states', n, self.obs['state'])
