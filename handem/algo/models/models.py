@@ -59,7 +59,7 @@ class MLPRegressor(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         return n_params
 
-class GPTDiscriminator(nn.Module):
+class TransformerDiscriminator(nn.Module):
 
     def __init__(self, n_layer, n_head, n_embd, proprio_hist_len, proprio_dim, num_classes, dropout, device):
         super().__init__()
@@ -106,6 +106,50 @@ class GPTDiscriminator(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         return n_params
 
+
+class TransformerRegressor(nn.Module):
+
+    def __init__(self, n_layer, n_head, n_embd, proprio_hist_len, proprio_dim, n_vertices, vertex_dim, autoregressive, dropout, device):
+        super().__init__()
+        # each token directly reads off the logits for the next token from a lookup table
+        self.history_embedding = nn.Linear(proprio_dim, n_embd)
+        self.position_embedding_table = nn.Embedding(proprio_hist_len, n_embd)
+        self.blocks = nn.Sequential(*[Block(n_head, n_embd, dropout) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_embd) # final layer norm
+        self.predict = nn.Linear(n_embd, n_vertices * vertex_dim)
+        self.device = device
+        self.autoregressive = autoregressive
+        # better init, not covered in the original GPT video, but important, will cover in followup video
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    
+    def forward(self, proprio_hist, vertex_preds):
+        # x: tensor of size (batch_size x proprio_hist_len x proprio_dim)
+        # targets: tensor of size (batch_size x proprio_hist_len)
+        if self.autoregressive:
+            raise NotImplementedError("Autoregressive not implemented yet for Transformer Regressor")
+        _, proprio_hist_len, _ = proprio_hist.shape
+
+        hist_emb = self.history_embedding(proprio_hist) # (batch_size x proprio_hist_len x proprio_dim) --> (batch_size x proprio_hist_len x n_embd)
+        pos_emb = self.position_embedding_table(torch.arange(proprio_hist_len, device=self.device)) # (proprio_hist_len x proprio_hist_len)
+        x = hist_emb + pos_emb # (batch_size x proprio_hist_len x n_embd)
+        x = self.blocks(x) # (batch_size x proprio_hist_len x n_embd)
+        x = self.ln_f(x) # (batch_size x proprio_hist_len x n_embd)
+        predictions = self.predict(x) # (batch_size x proprio_hist_len x n_vertices * vertex_dim)
+        # take the last prediction
+        predictions = predictions[:, -1, :]
+        return predictions
+
+    def get_num_params(self):
+        n_params = sum(p.numel() for p in self.parameters())
+        return n_params
 
 class ActorCritic(nn.Module):
     def __init__(self, kwargs):

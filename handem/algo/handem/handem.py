@@ -14,7 +14,7 @@ from tensorboardX import SummaryWriter
 
 from handem.algo.handem.experience import ExperienceBufferExplorer, ExperienceBufferDiscriminator, ExperienceBufferRegressor
 from handem.algo.models.models import ActorCritic
-from handem.algo.models.models import MLPDiscriminator, MLPRegressor, GPTDiscriminator
+from handem.algo.models.models import MLPDiscriminator, MLPRegressor, TransformerDiscriminator, TransformerRegressor
 from handem.algo.models.running_mean_std import RunningMeanStd
 from handem.utils.misc import AverageScalarMeter
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
@@ -58,16 +58,35 @@ class HANDEM(object):
             self.n_vertices = self.reconstruction_net_config.n_vertices
             self.vertex_dim = self.reconstruction_net_config.vertex_dim
             self.autoregressive = self.reconstruction_net_config.autoregressive
-            units = self.reconstruction_net_config.mlp.units
-            regressor_net_config = {
-                'proprio_dim': self.proprio_dim,
-                'proprio_hist_len': self.proprio_hist_len,
-                'units': units,
-                'vertex_dim': self.vertex_dim,
-                'n_vertices': self.n_vertices,
-                'autoregressive': self.autoregressive,
-            }
-            self.regressor = MLPRegressor(regressor_net_config)
+            if self.reconstruction_net_config.arch == 'mlp':
+                units = self.reconstruction_net_config.mlp.units
+                regressor_net_config = {
+                    'proprio_dim': self.proprio_dim,
+                    'proprio_hist_len': self.proprio_hist_len,
+                    'units': units,
+                    'vertex_dim': self.vertex_dim,
+                    'n_vertices': self.n_vertices,
+                    'autoregressive': self.autoregressive,
+                }
+                self.regressor = MLPRegressor(regressor_net_config)
+            else:
+                n_layer = self.reconstruction_net_config.transformer.n_layer
+                n_head = self.reconstruction_net_config.transformer.n_head
+                n_embd = self.reconstruction_net_config.transformer.n_embd
+                dropout = self.reconstruction_net_config.transformer.dropout
+                device = self.device
+                self.regressor = TransformerRegressor(
+                    n_layer, 
+                    n_head, 
+                    n_embd, 
+                    self.proprio_hist_len, 
+                    self.proprio_dim, 
+                    self.n_vertices, 
+                    self.vertex_dim,
+                    self.autoregressive,
+                    dropout, 
+                    device
+                )
             num_params = self.regressor.get_num_params()
             print(f'Number of regressor parameters: {num_params}')
             self.regressor_epochs = self.train_config["reconstruction_network"]["regressor_epochs"]
@@ -95,7 +114,7 @@ class HANDEM(object):
                 num_classes = self.num_classes
                 dropout = self.disc_net_config.transformer.dropout
                 device = self.device
-                self.discriminator = GPTDiscriminator(
+                self.discriminator = TransformerDiscriminator(
                     n_layer, 
                     n_head, 
                     n_embd, 
