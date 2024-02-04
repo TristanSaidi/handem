@@ -50,8 +50,8 @@ handem:
       dropout: 0.0
   reconstruction_network:
     autoregressive: False
-    arch: 'transform' # 'mlp' or 'transformer'
-    regressor_epochs: 1
+    arch: 'mlp' # 'mlp' or 'transformer'
+    regressor_epochs: 5
     mlp:
       units: [256, 128]
     transformer:

@@ -6,7 +6,7 @@ name: HANDEM_Reconstruct
 env:
   object_dataset: 'Tandem2D'
   objectOverride: 
-  episodeLength: 80
+  episodeLength: 100
   use_saved_grasps: False
   rand_object_reset: True
 
@@ -16,8 +16,10 @@ env:
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
-  propHistoryLen: 20
-  obsHistoryLen: 40
+  propHistoryRange: 100 # how far to look back
+  propHistoryFreq: 10 # how often to include prev obs in hist buf
+  obsHistoryRange: 100
+  obsHistoryFreq: 10
 
   reset:
     loss_threshold: 1e-4

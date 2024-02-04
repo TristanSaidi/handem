@@ -48,7 +48,7 @@ class HANDEM(object):
         self.explorer = ActorCritic(ppo_net_config)
         self.explorer.to(self.device)
         # ---- Discriminator/Regressor ----
-        self.proprio_hist_len = full_config.task["env"]["propHistoryLen"]
+        self.proprio_hist_len = self.env.prop_hist_len
         self.proprio_dim = self.env.num_obs // self.env.obs_hist_len
         self.discriminator = None
         self.regressor = None

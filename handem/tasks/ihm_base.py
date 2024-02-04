@@ -104,7 +104,16 @@ class IHMBase(VecTask):
             "ftip_contact_bool": 5,
             "ftip_contact_pos": 15,
         }
-        self.obs_hist_len = self.cfg["env"]["obsHistoryLen"]
+        # agent buffer
+        self.obs_hist_range = self.cfg["env"]["obsHistoryRange"]
+        self.obs_hist_freq = self.cfg["env"]["obsHistoryFreq"]
+        assert self.obs_hist_range % self.obs_hist_freq == 0, "obsHistoryRange must be divisible by obsHistoryFreq"
+        self.obs_hist_len = self.obs_hist_range // self.obs_hist_freq
+        # discriminator/regressor buffer
+        self.prop_hist_range = self.cfg["env"]["propHistoryRange"]
+        self.prop_hist_freq = self.cfg["env"]["propHistoryFreq"]
+        assert self.prop_hist_range % self.prop_hist_freq == 0, "propHistoryRange must be divisible by propHistoryFreq"
+        self.prop_hist_len = self.prop_hist_range // self.prop_hist_freq
         self.cfg["env"]["numStates"] = sum([dims[key] for key in self.cfg["env"]["feedbackState"]])
         self.cfg["env"]["numObservations"] = sum([dims[key] for key in self.cfg["env"]["feedbackObs"]]) * self.obs_hist_len
         self.cfg["env"]["numActions"] = 15
@@ -514,7 +523,6 @@ class IHMBase(VecTask):
         self.target_ur5e_joint_pos = self.default_ur5e_joint_pos.repeat(self.num_envs, 1)
 
     def _allocate_task_buffer(self, num_envs):
-        self.prop_hist_len = self.cfg["env"]["propHistoryLen"]
         self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs // self.obs_hist_len), device=self.device, dtype=torch.float)
 
     def _refresh_tensors(self):
@@ -600,16 +608,29 @@ class IHMBase(VecTask):
             cur_obs_buf += noise
         cur_state_buf = torch.cat(list(states.values()), dim=-1)
         self.obs_buf_lag_history[:] = torch.cat([prev_obs_buf, cur_obs_buf.unsqueeze(1)], dim=1)
-        # refill the initialized buffers
+        
+        # # refill the initialized buffers
         at_reset_env_ids = self.at_reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.obs_buf_lag_history[at_reset_env_ids] = cur_obs_buf[at_reset_env_ids].unsqueeze(1)
         # pulls the last obs_hist_len observations from the history buffer
-        t_buf = (self.obs_buf_lag_history[:, -self.obs_hist_len:].reshape(self.num_envs, -1)).clone()
+        t_buf = (self.obs_buf_lag_history[:, -self.obs_hist_range:]).clone()
+        prop_hist_range = self.obs_buf_lag_history[:, -self.prop_hist_range:].clone()
+        # if we are subsampling prop history
+        if self.prop_hist_freq > 1:
+            indices = reversed(torch.arange(self.prop_hist_range-1, 0, -self.prop_hist_freq, device=self.device))
+            prop_hist_range = prop_hist_range[:, indices, :]
 
+        self.proprio_hist_buf[:] = prop_hist_range
+
+        # if we are subsampling obs history
+        if self.obs_hist_freq > 1:
+            indices = reversed(torch.arange(self.obs_hist_range-1, 0, -self.obs_hist_freq, device=self.device))
+            t_buf = t_buf[:, indices, :].clone()
+
+        t_buf = t_buf.reshape(self.num_envs, -1)
         self.obs_buf[:, : t_buf.shape[1]] = t_buf
         self.at_reset_buf[at_reset_env_ids] = 0
 
-        self.proprio_hist_buf[:] = self.obs_buf_lag_history[:, -self.prop_hist_len :].clone()
 
     def log_data(self, feedback):
         self.log_count += 1
