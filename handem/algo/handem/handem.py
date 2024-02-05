@@ -600,6 +600,7 @@ class HANDEM(object):
             if self.regressor is not None:
                 regressor_output = res_dict['reg_preds'].detach()
                 vertex_pred = self.env.vertex_pred.clone()
+                self.regressor_storage.update_data('proprio_hist', n, self.obs['proprio_hist'])
                 self.regressor_storage.update_data('vertex_preds', n, vertex_pred)
                 self.env.update_regressor_output(regressor_output, self.autoregressive)
                 self.regressor_storage.update_data('vertex_labels', n, self.obs['vertex_labels'])
