@@ -327,7 +327,8 @@ class IHMBase(VecTask):
 
         # load vertices if appropriate
         if "Reconstruct" in self.cfg["name"]:
-            vertices_dir = os.path.join('object_datasets', self.object_dataset, 'vertices')
+            name = "upsampled_vertices" if self.cfg["env"]["upsample"] == True else "vertices"
+            vertices_dir = os.path.join('object_datasets', self.object_dataset, name)
             vertices_dataset_path = os.path.join(asset_root, vertices_dir)
             dataset_files = os.listdir(vertices_dataset_path)
             self.vertices = [None]*len(dataset_files)
