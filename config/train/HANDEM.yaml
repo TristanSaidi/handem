@@ -18,9 +18,11 @@ handem:
   # PPO batch collection
   horizon_length: 8
   minibatch_size: 32768
+  discriminator_minibatch_size: 
+  regressor_minibatch_size: 32768
+  regressor_learning_rate: 5e-4
   actor_mini_epochs: 5
   critic_mini_epochs: 8
-  discriminator_epochs: 5
   # PPO loss setting
   clip_value: True
   entropy_coef: 0.0
@@ -32,17 +34,30 @@ handem:
   # snapshot setting
   save_best_after: 0
   save_frequency: 50
-  max_agent_steps: 500000000
-  early_stopping_patience: 100
+  max_agent_steps: 200000000
   ppo_network:
     mlp:
       actor_units: [512, 512, 256, 128]
       critic_units: [512, 512, 256, 128]
   discriminator_network:
-    arch: 'mlp' # 'mlp' or 'transformer'
+    discriminator_epochs: 5
+    arch: 'transformer' # 'mlp' or 'transformer'
     mlp:
       units: [256, 128]
     transformer:
       n_layer: 3
-      n_head: 1
-      hidden_size: 32
+      n_head: 3
+      n_embd: 32
+      dropout: 0.0
+  reconstruction_network:
+    autoregressive: False
+    arch: 'mlp' # 'mlp' or 'transformer'
+    regressor_epochs: 5
+    mlp:
+      units: [256, 256]
+    transformer:
+      n_layer: 4
+      n_head: 3
+      n_embd: 32
+      dropout: 0.0
+    vertex_dim: 2

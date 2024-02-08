@@ -18,7 +18,7 @@ from handem.tasks.base.vec_task import VecTask
 
 # from isaacgymenvs.tasks.base.vec_task import VecTask
 from handem.utils.torch_jit_utils import tensor_clamp, my_quat_rotate
-from handem.utils.misc import sample_random_quat, euler_to_quat
+from handem.utils.misc import sample_random_quat, euler_to_quat, compute_2D_vertex_transform
 
 from handem.utils.torch_utils import to_torch
 import pickle
@@ -86,6 +86,9 @@ class IHMBase(VecTask):
         self.create_tensor_views()
         self.gym.simulate(self.sim)
         self._refresh_tensors()
+        if "Reconstruct" in self.cfg["name"]:
+            self.transformed_vertex_labels = compute_2D_vertex_transform(self.vertex_labels, self.object_pose) # (num_envs, n_vertices, 2)
+
 
     def _setup_states_obs_actions_dims(self):
         dims = {
@@ -101,8 +104,18 @@ class IHMBase(VecTask):
             "ftip_contact_bool": 5,
             "ftip_contact_pos": 15,
         }
+        # agent buffer
+        self.obs_hist_range = self.cfg["env"]["obsHistoryRange"]
+        self.obs_hist_freq = self.cfg["env"]["obsHistoryFreq"]
+        assert self.obs_hist_range % self.obs_hist_freq == 0, "obsHistoryRange must be divisible by obsHistoryFreq"
+        self.obs_hist_len = self.obs_hist_range // self.obs_hist_freq
+        # discriminator/regressor buffer
+        self.prop_hist_range = self.cfg["env"]["propHistoryRange"]
+        self.prop_hist_freq = self.cfg["env"]["propHistoryFreq"]
+        assert self.prop_hist_range % self.prop_hist_freq == 0, "propHistoryRange must be divisible by propHistoryFreq"
+        self.prop_hist_len = self.prop_hist_range // self.prop_hist_freq
         self.cfg["env"]["numStates"] = sum([dims[key] for key in self.cfg["env"]["feedbackState"]])
-        self.cfg["env"]["numObservations"] = sum([dims[key] for key in self.cfg["env"]["feedbackObs"]])
+        self.cfg["env"]["numObservations"] = sum([dims[key] for key in self.cfg["env"]["feedbackObs"]]) * self.obs_hist_len
         self.cfg["env"]["numActions"] = 15
 
     def _setup_object_params(self):
@@ -250,7 +263,7 @@ class IHMBase(VecTask):
         table_thickness = 0.05
         table_opts = gymapi.AssetOptions()
         table_opts.fix_base_link = True
-        table_asset = self.gym.create_box(self.sim, *[0.5, 0.5, table_thickness], table_opts)
+        table_asset = self.gym.create_box(self.sim, *[1.5, 0.5, table_thickness], table_opts)
 
         # Create table stand asset
         table_stand_pos = [table_pos[0], table_pos[1], table_pos[2]/2 - table_thickness / 4]
@@ -309,12 +322,33 @@ class IHMBase(VecTask):
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, asset_options)
             # add to dataset
             self.dataset.append((object_asset, label))
+        # sort dataset by label
+        self.dataset.sort(key=lambda x: x[1])
+
+        # load vertices if appropriate
+        if "Reconstruct" in self.cfg["name"]:
+            name = "upsampled_vertices" if self.cfg["env"]["upsample"] == True else "vertices"
+            vertices_dir = os.path.join('object_datasets', self.object_dataset, name)
+            vertices_dataset_path = os.path.join(asset_root, vertices_dir)
+            dataset_files = os.listdir(vertices_dataset_path)
+            self.vertices = [None]*len(dataset_files)
+            for file in dataset_files:
+                # extract label from filename
+                label = ''.join(list(filter(lambda x: x.isdigit(), file)))
+                label = int(label)
+                # load vertices
+                vertices_file = os.path.join(vertices_dataset_path, file)
+                vertices = to_torch(np.load(vertices_file), device=self.device)
+                # add to dataset
+                self.vertices[label] = vertices
+            self.vertices = torch.stack(self.vertices)
+            self.n_vertices_labels = self.vertices.shape[1]
         
         self.actor_handles = {"robot": [], "object": [], "table": [], "table_stand": []}
 
         self.envs = []
         self.object_indices = []
-
+        self.vertex_labels = []
         # store object labels for each environment
         self.object_labels = []
 
@@ -343,6 +377,8 @@ class IHMBase(VecTask):
             idx = random.choice(range(len(self.dataset))) if object_override is None else object_override
             label = self.dataset[idx][1]
             self.object_labels.append(label)
+            if "Reconstruct" in self.cfg["name"]:
+                self.vertex_labels.append(self.vertices[label])
             object_asset = self.dataset[idx][0]
             
             object_actor = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 0)
@@ -390,6 +426,8 @@ class IHMBase(VecTask):
             #### object rigid shape properties ####
 
         self.object_labels = to_torch(self.object_labels, dtype=torch.long, device=self.device)
+        if "Reconstruct" in self.cfg["name"]:
+            self.vertex_labels = torch.stack(self.vertex_labels)
 
         # Rigid body handles used later to compute object pose and contact forces
         self.rigid_body_handles = {}
@@ -486,8 +524,7 @@ class IHMBase(VecTask):
         self.target_ur5e_joint_pos = self.default_ur5e_joint_pos.repeat(self.num_envs, 1)
 
     def _allocate_task_buffer(self, num_envs):
-        self.prop_hist_len = self.cfg["env"]["propHistoryLen"]
-        self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs), device=self.device, dtype=torch.float)
+        self.proprio_hist_buf = torch.zeros((num_envs, self.prop_hist_len, self.num_obs // self.obs_hist_len), device=self.device, dtype=torch.float)
 
     def _refresh_tensors(self):
         """Updates data in tensor views created in create_tensor_views(). To be used judicioulsy as
@@ -521,6 +558,8 @@ class IHMBase(VecTask):
         self.progress_buf += 1
         self.reset_buf[:] = 0
         self._refresh_tensors()
+        if "Reconstruct" in self.cfg["name"]:
+            self.transformed_vertex_labels = compute_2D_vertex_transform(self.vertex_labels, self.object_pose) # (num_envs, n_vertices, 2)
         self.compute_reward()
         self.check_reset()
         env_idx = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -570,16 +609,29 @@ class IHMBase(VecTask):
             cur_obs_buf += noise
         cur_state_buf = torch.cat(list(states.values()), dim=-1)
         self.obs_buf_lag_history[:] = torch.cat([prev_obs_buf, cur_obs_buf.unsqueeze(1)], dim=1)
-        # refill the initialized buffers
+        
+        # # refill the initialized buffers
         at_reset_env_ids = self.at_reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.obs_buf_lag_history[at_reset_env_ids] = cur_obs_buf[at_reset_env_ids].unsqueeze(1)
         # pulls the last obs_hist_len observations from the history buffer
-        t_buf = (self.obs_buf_lag_history[:, -1:].reshape(self.num_envs, -1)).clone()
+        t_buf = (self.obs_buf_lag_history[:, -self.obs_hist_range:]).clone()
+        prop_hist_range = self.obs_buf_lag_history[:, -self.prop_hist_range:].clone()
+        # if we are subsampling prop history
+        if self.prop_hist_freq > 1:
+            indices = reversed(torch.arange(self.prop_hist_range-1, 0, -self.prop_hist_freq, device=self.device))
+            prop_hist_range = prop_hist_range[:, indices, :]
 
+        self.proprio_hist_buf[:] = prop_hist_range
+
+        # if we are subsampling obs history
+        if self.obs_hist_freq > 1:
+            indices = reversed(torch.arange(self.obs_hist_range-1, 0, -self.obs_hist_freq, device=self.device))
+            t_buf = t_buf[:, indices, :].clone()
+
+        t_buf = t_buf.reshape(self.num_envs, -1)
         self.obs_buf[:, : t_buf.shape[1]] = t_buf
         self.at_reset_buf[at_reset_env_ids] = 0
 
-        self.proprio_hist_buf[:] = self.obs_buf_lag_history[:, -self.prop_hist_len :].clone()
 
     def log_data(self, feedback):
         self.log_count += 1
@@ -644,6 +696,8 @@ class IHMBase(VecTask):
     def reset(self):
         super().reset()
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
+        if "Reconstruct" in self.cfg["name"]:
+            self.obs_dict["vertex_labels"] = self.transformed_vertex_labels.clone().to(self.rl_device)
         if self.states_buf is not None:
             self.obs_dict["state"] = self.states_buf.clone().to(self.rl_device)
         return self.obs_dict
@@ -651,6 +705,8 @@ class IHMBase(VecTask):
     def step(self, actions):
         super().step(actions)
         self.obs_dict["proprio_hist"] = self.proprio_hist_buf.to(self.rl_device)
+        if "Reconstruct" in self.cfg["name"]:
+            self.obs_dict["vertex_labels"] = self.transformed_vertex_labels.clone().to(self.rl_device)
         if self.states_buf is not None:
             self.obs_dict["state"] = self.states_buf.clone().to(self.rl_device)
         return self.obs_dict, self.rew_buf.to(self.rl_device), self.reset_buf.to(self.rl_device), self.extras

@@ -1,37 +1,45 @@
 defaults:
   - IHM.yaml
 
-name: HANDEM
+name: HANDEM_Reconstruct
 
 env:
   object_dataset: 'Tandem2D'
-  objectOverride: 
-  episodeLength: 300
+  upsample: True # use upsampled object dataset
+
+  objectOverride: 6
+  episodeLength: 80
   use_saved_grasps: False
   rand_object_reset: True
 
-  fix_object: True
+  fix_object: False
+  edge_loss_lambda: 1e-3
+  n_vertices: 100
+  autoreg_alpha: 1 # weight for autoregressive updates
 
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
+  propHistoryRange: 40 # how far to look back
+  propHistoryFreq: 4 # how often to include prev obs in hist buf
+  obsHistoryRange: 80
+  obsHistoryFreq: 8
+
   reset:
-    confidence_threshold: 0.98
+    loss_threshold: 1e-4
     obj_xyz_lower_lim: [0.0, 0.35, 0.0]
     obj_xyz_upper_lim: [0.3, 0.65, 0.5]
 
   # reward terms
   reward:
-    # correct discriminator prediction
-    disc_pred_reward: 100.0
-    # log likelihood reward
-    disc_loss_reward: 0.1
+    reg_loss_reward: 1.0
+    reg_loss_temp: 0.01
     # heuristic terms
-    ftip_obj_dist_rew: 0.0 # encourage contact
+    ftip_obj_dist_rew: 0.05 # encourage contact
     object_disp_rew: 0.0 # encourage object to stay in place
-    contact_loc_pen: 0.1 # penalize contact with back of fingertips
-    hand_pose_pen: 0.0 # penalize hand joint disp from "close-hand"
+    contact_loc_pen: 0.0 # penalize contact with back of fingertips
+    hand_pose_pen: 0.01 # penalize hand joint disp from "close-hand"
 
   randomize: False
   randomization_params:

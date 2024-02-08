@@ -12,7 +12,7 @@ import random
 import subprocess
 import numpy as np
 from isaacgym.torch_utils import torch_rand_float, quat_conjugate, quat_mul, get_euler_xyz
-from handem.utils.torch_jit_utils import quat_to_angle_axis
+from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
 
 def axis_angle_to_quat(axis, angle):
     """ converts n (axis, angle) tuples to n quaternions """
@@ -65,6 +65,32 @@ def compute_quat_angle(quat1, quat2):
     quat_diff = quat_mul(quat1, quat_conjugate(quat2))
     magnitude, axis = quat_to_angle_axis(quat_diff)
     return torch.abs(magnitude).unsqueeze(1)
+
+def compute_2D_vertex_transform(vertices, pose):
+    # vertices: (B, N, 2)
+    # pose: (B, 7)
+    # returns transformed vertices: (B, N, 2)
+    B = vertices.size(0)
+    N = vertices.size(1)
+    assert pose.size(0) == B
+    quat = torch.broadcast_to(
+            pose[:, 3:].unsqueeze(1), # unsqueeze to include desired intermediate dim
+            (B, N, 4)
+    ).reshape(B * N, 4)
+    pos = torch.broadcast_to(
+            pose[:, :3].unsqueeze(1), # unsqueeze to include desired intermediate dim
+            (B, N, 3)
+    ).reshape(B * N, 3)
+    # lift vertices to be in 3D
+    vertices = torch.cat((vertices, torch.zeros((B, N, 1), device=vertices.device)), dim=-1)
+    vertices = vertices.reshape(B * N, 3)
+    # compute transformed vertices
+    transformed_vertices = my_quat_rotate(quat, vertices)
+    transformed_vertices = transformed_vertices + pos
+    # reshape
+    transformed_vertices = transformed_vertices.reshape(B, N, 3)
+    return transformed_vertices[:, :, :2]
+
 
 def euler_to_quat(r, p, y):
     q_x = torch.sin(r / 2) * torch.cos(p / 2) * torch.cos(y / 2) - torch.cos(r / 2) * torch.sin(p / 2) * torch.sin(y / 2)

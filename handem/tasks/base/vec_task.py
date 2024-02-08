@@ -179,9 +179,11 @@ class VecTask(Env):
         inherit from this one, and are read in `step` and other related functions.
 
         """
+        obs_buf_len = 200
+        assert self.obs_hist_range < obs_buf_len, "obs_hist_range should be less than obs_buf_len"
         # allocate buffers
         self.obs_buf = torch.zeros((self.num_envs, self.num_obs), device=self.device, dtype=torch.float)
-        self.obs_buf_lag_history = torch.zeros((self.num_envs, 80, self.num_obs), device=self.device, dtype=torch.float)
+        self.obs_buf_lag_history = torch.zeros((self.num_envs, obs_buf_len, self.num_obs // self.obs_hist_len), device=self.device, dtype=torch.float)
         self.rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
         self.at_reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)

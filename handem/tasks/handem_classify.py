@@ -10,7 +10,7 @@ from handem.tasks.ihm_base import IHMBase
 from handem.utils.torch_jit_utils import quat_to_angle_axis, my_quat_rotate
 from time import sleep
 
-class HANDEM(IHMBase):
+class HANDEM_Classify(IHMBase):
     def __init__(
         self,
         cfg,
@@ -57,6 +57,9 @@ class HANDEM(IHMBase):
         self.hand_pose_pen = self.cfg["env"]["reward"]["hand_pose_pen"]
 
     def update_discriminator_output(self, output):
+        if len(output.shape) == 3: # output coming from transformer
+            output = output[:, -1, :]
+            output = torch.nn.functional.log_softmax(output, dim=-1) # convert to log softmax
         self.discriminator_log_softmax = output.clone().detach().to(self.device)
 
     def get_disc_correct(self):
@@ -95,7 +98,8 @@ class HANDEM(IHMBase):
             torch.zeros_like(correct)
         )
         return correct, disc_max_softmax
-
+    
+    @torch.no_grad()
     def compute_disc_loss(self):
         # compute discriminator loss
         loss = torch.nn.functional.nll_loss(
