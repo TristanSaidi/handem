@@ -55,7 +55,7 @@ class HANDEM(object):
         self.n_vertices = None
         if full_config["task"]['name'] == 'HANDEM_Reconstruct':
             self.reconstruction_net_config = full_config.train.handem.reconstruction_network
-            self.n_vertices = self.reconstruction_net_config.n_vertices
+            self.n_vertices = self.env.n_vertices
             self.vertex_dim = self.reconstruction_net_config.vertex_dim
             self.autoregressive = self.reconstruction_net_config.autoregressive
             if self.reconstruction_net_config.arch == 'mlp':
@@ -90,6 +90,7 @@ class HANDEM(object):
             num_params = self.regressor.get_num_params()
             print(f'Number of regressor parameters: {num_params}')
             self.regressor_epochs = self.train_config["reconstruction_network"]["regressor_epochs"]
+            self.regressor_lr = self.train_config["regressor_learning_rate"]
             self.regressor.to(self.device)
         else:
             self.disc_net_config = full_config.train.handem.discriminator_network
@@ -148,7 +149,7 @@ class HANDEM(object):
         self.actor_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
         self.critic_optimizer = torch.optim.Adam(self.explorer.parameters(), self.last_lr, weight_decay=self.weight_decay)
         if full_config["task"]['name'] == 'HANDEM_Reconstruct':
-            self.regressor_optimizer = torch.optim.Adam(self.regressor.parameters(), self.last_lr, weight_decay=self.weight_decay)
+            self.regressor_optimizer = torch.optim.Adam(self.regressor.parameters(), self.regressor_lr, weight_decay=self.weight_decay)
         else:
             self.disc_optimizer = torch.optim.Adam(self.discriminator.parameters(), self.last_lr, weight_decay=self.weight_decay)
         # ---- PPO Train Param ----
@@ -203,7 +204,7 @@ class HANDEM(object):
         if self.regressor is not None:
             self.reg_minibatch_size = self.train_config['regressor_minibatch_size']
             self.regressor_storage = ExperienceBufferRegressor(
-                self.num_actors, self.horizon_length, self.batch_size, self.reg_minibatch_size, self.proprio_dim, self.proprio_hist_len, self.n_vertices, self.device,
+                self.num_actors, self.horizon_length, self.batch_size, self.reg_minibatch_size, self.proprio_dim, self.proprio_hist_len, self.n_vertices, self.env.n_vertices_labels, self.device,
             )
 
         batch_size = self.num_actors
@@ -541,11 +542,11 @@ class HANDEM(object):
             for i in range(len(self.regressor_storage)):
                 proprio_hist, vertex_labels, vertex_preds = self.regressor_storage[i]
                 proprio_hist = self.hist_mean_std(proprio_hist)
-                vertex_preds = vertex_preds.to(self.device) # (B, N, 2)
+                vertex_preds = vertex_preds.detach().to(self.device) # (B, N, 2)
                 # forward pass
                 reg_preds = self.regressor(proprio_hist, vertex_preds)
                 if self.autoregressive:
-                    updated_vertex_preds = vertex_preds + reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
+                    updated_vertex_preds = vertex_preds + self.env.alpha * reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
                 else:
                     updated_vertex_preds = reg_preds.reshape(-1, self.n_vertices, 2) # (B, N, 2)
                 # compute chamfer loss

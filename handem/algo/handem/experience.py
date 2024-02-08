@@ -169,7 +169,7 @@ class ExperienceBufferDiscriminator(Dataset):
 class ExperienceBufferRegressor(Dataset):
     """Store on-policy rollouts"""
 
-    def __init__(self, num_envs, horizon_length, batch_size, minibatch_size, obs_dim, proprio_hist_len, n_vertices, device):
+    def __init__(self, num_envs, horizon_length, batch_size, minibatch_size, obs_dim, proprio_hist_len, n_vertices, n_vertices_labels, device):
         self.device = device
         self.num_envs = num_envs
         self.transitions_per_env = horizon_length
@@ -179,7 +179,7 @@ class ExperienceBufferRegressor(Dataset):
         self.proprio_hist_len = proprio_hist_len
         self.storage_dict = {
             "proprio_hist": torch.zeros((self.transitions_per_env, self.num_envs, self.proprio_hist_len, self.obs_dim), dtype=torch.float32, device=self.device),
-            "vertex_labels": torch.zeros((self.transitions_per_env, self.num_envs, n_vertices, 2), dtype=torch.float32, device=self.device),
+            "vertex_labels": torch.zeros((self.transitions_per_env, self.num_envs, n_vertices_labels, 2), dtype=torch.float32, device=self.device),
             "vertex_preds": torch.zeros((self.transitions_per_env, self.num_envs, n_vertices, 2), dtype=torch.float32, device=self.device),
         }
         self.batch_size = batch_size

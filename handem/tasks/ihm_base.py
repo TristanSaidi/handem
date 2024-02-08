@@ -342,7 +342,7 @@ class IHMBase(VecTask):
                 # add to dataset
                 self.vertices[label] = vertices
             self.vertices = torch.stack(self.vertices)
-            self.num_vertices = self.vertices.shape[1]
+            self.n_vertices_labels = self.vertices.shape[1]
         
         self.actor_handles = {"robot": [], "object": [], "table": [], "table_stand": []}
 

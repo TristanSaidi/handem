@@ -5,21 +5,26 @@ name: HANDEM_Reconstruct
 
 env:
   object_dataset: 'Tandem2D'
-  objectOverride: 
-  episodeLength: 100
+  upsample: True # use upsampled object dataset
+
+  objectOverride: 6
+  episodeLength: 80
   use_saved_grasps: False
   rand_object_reset: True
 
-  fix_object: True
-  edge_loss_lambda: 0.01
+  fix_object: False
+  edge_loss_lambda: 1e-3
+  n_vertices: 100
+  autoreg_alpha: 1 # weight for autoregressive updates
+
   # observation and state
   feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
-  propHistoryRange: 100 # how far to look back
-  propHistoryFreq: 10 # how often to include prev obs in hist buf
-  obsHistoryRange: 100
-  obsHistoryFreq: 10
+  propHistoryRange: 40 # how far to look back
+  propHistoryFreq: 4 # how often to include prev obs in hist buf
+  obsHistoryRange: 80
+  obsHistoryFreq: 8
 
   reset:
     loss_threshold: 1e-4

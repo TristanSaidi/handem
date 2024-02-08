@@ -39,10 +39,11 @@ class HANDEM_Reconstruct(IHMBase):
         self._setup_rotation_axis(cfg["env"]["rotationAxis"])
         self._setup_reward_config()
         self._setup_reset_config()
-        
-        self.vertex_pred = torch.zeros((self.num_envs, self.num_vertices, 2), device=self.device)
+        self.n_vertices = self.cfg["env"]["n_vertices"]
+        self.vertex_pred = torch.zeros((self.num_envs, self.n_vertices, 2), device=self.device)
         self.visualize_enabled = (self.headless==False) and self.num_envs == 1
         self.lbda = self.cfg["env"]["edge_loss_lambda"]
+        self.alpha = self.cfg["env"]["autoreg_alpha"]
         if self.visualize_enabled:
             self.label_offset = np.array([0.3, 0.0, 0.2])
             self.pred_offset = np.array([0.3, 0.0, 0.2])
@@ -61,9 +62,9 @@ class HANDEM_Reconstruct(IHMBase):
         self.hand_pose_pen = self.cfg["env"]["reward"]["hand_pose_pen"]
 
     def update_regressor_output(self, output, autoregressive):
-        output = output.reshape(self.num_envs, self.num_vertices, 2)
+        output = output.reshape(self.num_envs, self.n_vertices, 2)
         if autoregressive:
-            self.vertex_pred = self.vertex_pred + output.clone().detach().to(self.device)
+            self.vertex_pred = self.vertex_pred + self.alpha * output.clone().detach().to(self.device)
         else:
             self.vertex_pred = output.clone().detach().to(self.device)
 
@@ -78,11 +79,12 @@ class HANDEM_Reconstruct(IHMBase):
 
     def visualize_vertices(self, vertices, offset, color):
         # labels
-        vertices = np.concatenate((vertices, np.zeros((self.num_envs, self.num_vertices, 1))), axis=-1)
+        n_vertices = vertices.shape[1]
+        vertices = np.concatenate((vertices, np.zeros((self.num_envs, n_vertices, 1))), axis=-1)
         # predictions
-        for i in range(self.num_vertices):
+        for i in range(n_vertices):
             start_idx = i
-            end_idx = i+1 if i < self.num_vertices-1 else 0
+            end_idx = i+1 if i < n_vertices-1 else 0
             vertex = [vertices[0, start_idx] + offset, vertices[0, end_idx] + offset]
             self.gym.add_lines(self.viewer, self.envs[0], 1, vertex, color)
 
