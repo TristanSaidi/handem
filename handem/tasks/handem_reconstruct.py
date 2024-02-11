@@ -60,6 +60,9 @@ class HANDEM_Reconstruct(IHMBase):
         self.object_disp_rew = self.cfg["env"]["reward"]["object_disp_rew"]
         self.contact_loc_pen = self.cfg["env"]["reward"]["contact_loc_pen"]
         self.hand_pose_pen = self.cfg["env"]["reward"]["hand_pose_pen"]
+        self.finger_gaiting_reward = self.cfg["env"]["reward"]["finger_gaiting_reward"]
+        self.torque_pen = self.cfg["env"]["reward"]["torque_pen"]
+        self.work_pen = self.cfg["env"]["reward"]["work_pen"]
 
     def update_regressor_output(self, output, autoregressive):
         output = output.reshape(self.num_envs, self.n_vertices, 2)
@@ -72,6 +75,7 @@ class HANDEM_Reconstruct(IHMBase):
         self.loss_threshold = self.cfg["env"]["reset"]["loss_threshold"]
         self.obj_xyz_lower_lim = self.cfg["env"]["reset"]["obj_xyz_lower_lim"]
         self.obj_xyz_upper_lim = self.cfg["env"]["reset"]["obj_xyz_upper_lim"]
+        self.tilt_lim_cos = self.cfg["env"]["reset"]["tilt_lim_cos"]
 
     def get_reg_correct(self):
         "return whether last regressor prediction was correct (within threshold)"
@@ -127,8 +131,26 @@ class HANDEM_Reconstruct(IHMBase):
         close_hand = torch.tensor([0.0, 0.25, 0.45]*5).to(self.device)
         hand_pose_diff = torch.linalg.norm(self.hand_dof_pos.clone() - close_hand, dim=1)
         hand_pose_pen = -1 * self.hand_pose_pen * hand_pose_diff.unsqueeze(1)
+        # fingergaiting rew
+        obj_quat = self.object_orientation.clone()
+        prev_obj_quat = self.object_state_prev[:, 3:7].clone()
+        quat_diff = quat_mul(obj_quat, quat_conjugate(prev_obj_quat))
+        magnitude, axis = quat_to_angle_axis(quat_diff)
+        magnitude = magnitude - 2 * np.pi * (magnitude > np.pi)
+        axis_angle = torch.mul(axis, torch.reshape(magnitude, (-1, 1)))
+        avg_angular_vel = axis_angle / (self.sim_params.dt * self.control_freq_inv)
+        vec_dot = torch.sum(avg_angular_vel * self.rotation_axis, dim=1)
+        rotation_reward = torch.clip(vec_dot, max=0.5).unsqueeze(1)
+        finger_gaiting_reward = self.finger_gaiting_reward * rotation_reward
+        # torque penalty
+        torques = self.hand_torques.clone()
+        hand_dof_vel = self.hand_dof_vel.clone()
+        torque_penalty = (torques**2).sum(-1)
+        work_penalty = ((torques * hand_dof_vel).sum(-1)) ** 2
+        torque_penalty = self.torque_pen * torque_penalty.unsqueeze(1)
+        work_penalty = self.work_pen * work_penalty.unsqueeze(1)
         # total reward
-        reward = reg_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen + hand_pose_pen
+        reward = reg_loss_reward + ftip_obj_dist_rew + obj_disp_rew + contact_loc_pen + hand_pose_pen + finger_gaiting_reward + torque_penalty + work_penalty
         reward = reward.squeeze(1)
         self.rew_buf[:] = reward
 
@@ -138,6 +160,14 @@ class HANDEM_Reconstruct(IHMBase):
         reset = self.reset_buf[:]
         # if confident
         reset = torch.where(self.correct.squeeze(1) == 1, torch.ones_like(self.reset_buf), reset)
+        # if object is tilted too much
+        obj_quat = self.object_state[:, 3:7]
+        obj_axis = my_quat_rotate(obj_quat, self.rotation_axis)
+        reset = torch.where(
+            torch.linalg.norm(obj_axis * self.rotation_axis, dim=1) < self.tilt_lim_cos,
+            torch.ones_like(self.reset_buf),
+            reset,
+        )
         # if end of episode
         reset = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), reset)
         self.reset_buf[:] = reset

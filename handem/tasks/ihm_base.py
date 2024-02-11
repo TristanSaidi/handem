@@ -80,8 +80,6 @@ class IHMBase(VecTask):
         self.contactBoolForceThreshold = cfg["env"]["contactBoolForceThreshold"]
         self.action_scale = to_torch(cfg["env"]["actionScale"], device=self.device)
         self.rand_object_reset = cfg["env"].get("rand_object_reset", False)
-        if "ftip_contact_pos" in self.cfg["env"]["feedbackObs"]:
-            assert 'cpu' in self.device, "ftip_contact_pos is not supported on GPU"
     
         self.create_tensor_views()
         self.gym.simulate(self.sim)

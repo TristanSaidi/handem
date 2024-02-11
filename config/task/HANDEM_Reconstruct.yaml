@@ -7,8 +7,8 @@ env:
   object_dataset: 'Tandem2D'
   upsample: True # use upsampled object dataset
 
-  objectOverride: 6
-  episodeLength: 80
+  objectOverride: 
+  episodeLength: 200
   use_saved_grasps: False
   rand_object_reset: True
 
@@ -18,7 +18,7 @@ env:
   autoreg_alpha: 1 # weight for autoregressive updates
 
   # observation and state
-  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool"]
+  feedbackObs: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_bool", "ftip_contact_pos"]
   feedbackState: ["hand_joint_pos",  "hand_joint_target", "ftip_contact_force", "object_pos", "object_orientation", "object_lin_vel", "object_ang_vel", "hand_joint_torque"]
 
   propHistoryRange: 40 # how far to look back
@@ -30,16 +30,20 @@ env:
     loss_threshold: 1e-4
     obj_xyz_lower_lim: [0.0, 0.35, 0.0]
     obj_xyz_upper_lim: [0.3, 0.65, 0.5]
+    tilt_lim_cos: 0.0 
 
   # reward terms
   reward:
-    reg_loss_reward: 1.0
-    reg_loss_temp: 0.01
+    reg_loss_reward: 0.0
+    reg_loss_temp: 0.0
     # heuristic terms
-    ftip_obj_dist_rew: 0.05 # encourage contact
-    object_disp_rew: 0.0 # encourage object to stay in place
-    contact_loc_pen: 0.0 # penalize contact with back of fingertips
-    hand_pose_pen: 0.01 # penalize hand joint disp from "close-hand"
+    ftip_obj_dist_rew: 0.0 # encourage contact
+    object_disp_rew: 0.01 # encourage object to stay in place
+    contact_loc_pen: 0.01 # penalize contact with back of fingertips
+    hand_pose_pen: 0.5 # penalize hand joint disp from "close-hand"
+    finger_gaiting_reward: 1.0
+    torque_pen: 0.0
+    work_pen: 0.0
 
   randomize: False
   randomization_params:

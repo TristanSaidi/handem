@@ -4,7 +4,8 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
   # default positions
-  default_hand_joint_pos: [0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0]
+  # default_hand_joint_pos: [0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0]
+  default_hand_joint_pos: [0.0, 0.2, 0.35, 0.0, 0.2, 0.35, 0.0, 0.2, 0.35, 0.0, 0.2, 0.35, 0.0, 0.2, 0.35]
   default_ur5e_joint_pos: [-1.57, -1.57, -1.57, -1.57, 1.57, 0]
   default_object_pos: [0.125, 0.5, 0.1825]
   default_object_euler: [0, 0, 3.14]
@@ -43,14 +44,14 @@ env:
 
   hand_params:
     # actuator params
-    stiffness: 3.0
-    damping: 0.1
-    velocityLimit: 4
-    effortLimit: 1
+    stiffness: 30.0
+    damping: 2.0
+    velocityLimit: 0.6
+    effortLimit: 0.5
     jointFriction: 0.0
     # actuator limits
-    hand_joint_lower_lim: [ -0.7, -0.39269908169, 0.0001 ]
-    hand_joint_upper_lim: [ 0.7, 0.5, 1 ]
+    hand_joint_lower_lim: [ -0.4, -0.3, 0.25 ]
+    hand_joint_upper_lim: [ 0.4, 0.3, 0.75 ]
   
   ur5e_params:
     stiffness: 1e6
